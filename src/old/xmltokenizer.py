@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from shared import EMPTY_SPACES
 from shared import QUOTES
-from xmltoken import XMLToken as XMLToken
+from old.xmltoken import XMLToken as XMLToken
 
 
 def get_tokens(

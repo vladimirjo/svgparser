@@ -1,6 +1,6 @@
-from svgparser import BufferController
-from svgparser import XMLBuilder
-from svgparser import XMLParser
+from old.svgparser import BufferController
+from old.svgparser import XMLBuilder
+from old.svgparser import XMLParser
 
 
 svg = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<!-- This is the root element of the XML document -->

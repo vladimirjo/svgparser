@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from shared import EMPTY_SPACES
 from shared import QUOTES
-from xmltoken import XMLToken
-from xmltokenizer import get_tokens
+from old.xmltoken import XMLToken
+from old.xmltokenizer import get_tokens
 
 
 def normalize_newlines(text: str) -> str:
