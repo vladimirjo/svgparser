@@ -4,7 +4,7 @@ from enum import Enum
 from enum import auto
 from enum import unique
 
-from shared import QUOTES
+from xmlvalidator import QUOTES
 
 
 @unique

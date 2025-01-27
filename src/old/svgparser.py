@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from shared import EMPTY_SPACES
-from shared import QUOTES
+from xmlvalidator import EMPTY_SPACES
+from xmlvalidator import QUOTES
 from old.xmltoken import XMLToken
 from old.xmltokenizer import get_tokens
 

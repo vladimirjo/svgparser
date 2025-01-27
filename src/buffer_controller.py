@@ -1,4 +1,6 @@
 from __future__ import annotations
+from curses.ascii import isspace
+
 
 from shared import EMPTY_SPACES
 from shared import QUOTES
@@ -47,6 +49,28 @@ class Token:
         self.fragments: list[Fragment] = []
         self.fragments.append(fragment)
 
+    def startswith(self, search_string: str) -> bool:
+        if self.chars.startswith(search_string):
+            return True
+        return False
+
+    def endswith(self, search_string: str) -> bool:
+        if self.chars.endswith(search_string):
+            return True
+        return False
+
+    def resolve_pointer(self, in_token_pointer: int) -> int:
+        index = 0
+        while in_token_pointer > len(self.fragments[index].chars):
+            in_token_pointer -= len(self.fragments[index].chars)
+            index += 1
+            if index >= len(self.fragments):
+                raise ValueError("Invalid in token pointer.")
+        return self.fragments[index].buffer_pointer + in_token_pointer
+
+    def end_pointer(self) -> int:
+        return self.fragments[-1].end_pointer()
+
     def match(self, string_to_match: str) -> bool:
         if self.chars == string_to_match:
             return True
@@ -83,6 +107,85 @@ class Token:
             self.fragments.extend(token.fragments)
         token.fragments = []
 
+    def remove_length_from_left(self, length) -> None:
+        if length <= 0:
+            raise ValueError("Length to remove must be larger than 0.")
+        if length > len(self.chars):
+            length = len(self.chars)
+        fragments: list[Fragment] = []
+        i = 0
+        while length > 0:
+            if length >= len(self.fragments[i].chars):
+                length -= len(self.fragments[i].chars)
+                i += 1
+                continue
+            new_fragment = Fragment(
+                self.fragments[i].chars[length:],
+                self.fragments[i].buffer_pointer,
+                self.fragments[i].buffer_slot,
+            )
+            fragments.append(new_fragment)
+            length = 0
+            i += 1
+        while i < len(self.fragments):
+            fragments.append(self.fragments[i])
+            i += 1
+        i = 0
+        self.chars = ""
+        while i < len(fragments):
+            self.chars += fragments[i].chars
+            i += 1
+        self.fragments = fragments
+        if len(fragments) > 0:
+            self.buffer_slot = fragments[0].buffer_slot
+            self.buffer_pointer = fragments[0].buffer_pointer
+
+    def extract(self, length: int) -> Token:
+        if length <= 0:
+            raise ValueError("Length to extract must be larger than 0.")
+        if length > len(self.chars):
+            length = len(self.chars)
+        length_to_remove = length
+        fragments: list[Fragment] = []
+        i = 0
+        while length > 0 and i < len(self.fragments):
+            if length >= len(self.fragments[i].chars):
+                new_fragment = Fragment(
+                    self.fragments[i].chars,
+                    self.fragments[i].buffer_pointer,
+                    self.fragments[i].buffer_slot,
+                )
+                fragments.append(new_fragment)
+                length -= len(new_fragment.chars)
+                i += 1
+            else:
+                new_fragment = Fragment(
+                    self.fragments[i].chars[:length],
+                    self.fragments[i].buffer_pointer,
+                    self.fragments[i].buffer_slot,
+                )
+                fragments.append(new_fragment)
+                length -= len(new_fragment.chars)
+        i = 1
+        new_token = Token(fragments[0])
+        while i < len(fragments):
+            new_token.add_fragment(fragments[i])
+        self.remove_length_from_left(length_to_remove)
+        return new_token
+
+    def search_preceded_by_whitespace(self, substring: str, start: int = 0) -> int:
+        while start < len(self.chars):
+            if self.chars[start].isspace():
+                start += 1
+                continue
+            else:
+                break
+        if start + len(substring) > len(self.chars):
+            return -1
+        if self.chars[start : start + len(substring)] == substring:
+            return start + len(substring)
+        return -1
+
 
 class TokenAccumulator:
     def __init__(self) -> None:
@@ -107,8 +210,8 @@ class BufferController:
         self.buffer_units: list[BufferUnit] = []
         self.buffer_views: list[BufferView] = []
         self.buffer_view_in_use: int = 0
-        self.entity_stack: list[str] = []
         self.accumulator: TokenAccumulator = TokenAccumulator()
+        self.entity_stack: list = []
         self.tokens: list[Token] = []
 
     def add_buffer_unit(self, buffer: str, filename: str) -> None:
@@ -343,63 +446,7 @@ class BufferController:
             self.add_token_to_accumulator(current)
             current = self.read()
 
-    def tokenize_dtd(self) -> None:
-        nested_levels = 1
-        quotes_in_use = ""
-        tag_name_finished = False
-        if not self.search("<!"):
-            return
-        self.add_string("<!")
-        current = self.read()
-        while current is not None:
-            # inside quotes
-            if quotes_in_use != "":
-                if quotes_in_use == current.chars:
-                    quotes_in_use = ""
-                    self.add_token(current)
-                    current = self.read()
-                else:
-                    self.add_token_to_accumulator(current)
-                continue
-            if current.chars in QUOTES:
-                quotes_in_use = current.chars
-                self.add_token_to_accumulator(current)
-                current = self.read()
-                continue
-            # exit dtd
-            if self.search("<") and not self.search("<!"):
-                self.add_accumulator_to_tokens()
-                return
-            if not tag_name_finished:
-                self.add_tagname()
-                tag_name_finished = True
-                continue
-            # nesting further
-            if self.search("<!"):
-                self.add_string("<!")
-                quotes_in_use = ""
-                nested_levels += 1
-                continue
-            # skip empty spaces
-            if current.chars in EMPTY_SPACES:
-                self.skip_forward()
-                current = self.read()
-                continue
-            # go up one level
-            if self.search(">"):
-                self.add_string(">")
-                nested_levels -= 1
-                if nested_levels == 0:
-                    # exit dtd
-                    return
-                continue
-            if self.search_in_tokens("|()[],?*+"):
-                self.add_token_to_accumulator(current)
-                continue
-            self.add_token_to_accumulator(current)
-            current = self.read()
-
-    def tokenize_closing_tag(self) -> None:
+    def tokenize_end_tag(self) -> None:
         if not self.search("</"):
             return
         self.add_string("</")
@@ -414,34 +461,19 @@ class BufferController:
             self.add_token_to_accumulator(current)
             current = self.read()
 
-    def tokenize_tag(self, xml_declaration: bool) -> None:
-        tag_name_finished = False
-        quotes_in_use = ""
-        if not self.search("<"):
-            return
-        self.add_string("<")
+    def tokenize_start_tag(self, xml_declaration: bool) -> None:
+        if xml_declaration:
+            self.add_string("<?xml")
+        else:
+            self.add_string("<")
+            self.add_tagname()
         current = self.read()
         while current is not None:
             if self.search("<"):
                 self.add_accumulator_to_tokens()
                 return
-            if not xml_declaration and not tag_name_finished:
-                self.add_tagname()
-                tag_name_finished = True
-                current = self.read()
-                continue
-            if quotes_in_use != "":
-                if current.match(quotes_in_use):
-                    self.add_string(quotes_in_use)
-                    quotes_in_use = ""
-                    current = self.read()
-                else:
-                    self.add_token_to_accumulator(current)
-                    current = self.read()
-                continue
             if current.is_quotes():
-                quotes_in_use = current.chars
-                self.add_string(quotes_in_use)
+                self.tokenize_attribute_quotes()
                 current = self.read()
                 continue
             if current.is_empty_spaces():
@@ -472,31 +504,187 @@ class BufferController:
                 return
             self.add_token_to_accumulator(current)
             current = self.read()
+        self.add_accumulator_to_tokens()
 
-    def get_element_tokens(self) -> None | list[Token]:
+    def tokenize_attribute_quotes(self) -> None:
+        current = self.read()
+        if current is None:
+            return
+        if not current.is_quotes():
+            return
+        quotes_in_use = current.chars
+        self.add_string(quotes_in_use)
+        current = self.read()
+        while current is not None:
+            if current.match("<"):
+                self.add_accumulator_to_tokens()
+                return
+            if current.match(quotes_in_use):
+                self.add_string(quotes_in_use)
+                return
+            self.add_token_to_accumulator(current)
+            current = self.read()
+
+    def tokenize_dtd_quotes(self) -> None:
+        current = self.read()
+        if current is None:
+            return
+        if not current.is_quotes():
+            return
+        quotes_in_use = current.chars
+        self.add_string(quotes_in_use)
+        current = self.read()
+        while current is not None:
+            if current.match(quotes_in_use):
+                self.add_string(quotes_in_use)
+                return
+            self.add_token_to_accumulator(current)
+            current = self.read()
+
+    def tokenize_doctype(self) -> None:
+        if not self.search("<!DOCTYPE"):
+            return
+        self.add_string("<!DOCTYPE")
+        current = self.read()
+        while current is not None:
+            if self.search("<"):
+                self.add_accumulator_to_tokens()
+                return
+            if current.is_quotes():
+                self.tokenize_dtd_quotes()
+                current = self.read()
+                continue
+            if current.is_empty_spaces():
+                self.skip_forward()
+                current = self.read()
+                continue
+            if self.search(">"):
+                self.add_string(">")
+                return
+            if self.search("["):
+                self.add_string("[")
+                return
+            if self.search("]"):
+                self.add_string("]")
+                return
+            self.add_token_to_accumulator(current)
+            current = self.read()
+
+    def tokenize_element_or_attlist(self) -> None:
+        if self.search("<!ELEMENT"):
+            self.add_string("<!ELEMENT")
+        elif self.search("<!ATTLIST"):
+            self.add_string("<!ATTLIST")
+        else:
+            return
+        current = self.read()
+        while current is not None:
+            if self.search("<"):
+                self.add_accumulator_to_tokens()
+                return
+            if current.is_quotes():
+                self.tokenize_dtd_quotes()
+                current = self.read()
+                continue
+            if current.is_empty_spaces():
+                self.skip_forward()
+                current = self.read()
+                continue
+            if self.search(">"):
+                self.add_string(">")
+                return
+            if self.search_in_tokens("|(),?*+"):
+                self.add_accumulator_to_tokens()
+                self.add_token_to_accumulator(current)
+                self.add_accumulator_to_tokens()
+                current = self.read()
+                continue
+            self.add_token_to_accumulator(current)
+            current = self.read()
+
+    def tokenize_entity_or_notation(self) -> None:
+        if self.search("<!ENTITY"):
+            self.add_string("<!ENTITY")
+        elif self.search("<!NOTATION"):
+            self.add_string("<!NOTATION")
+        else:
+            return
+        current = self.read()
+        while current is not None:
+            if self.search("<"):
+                self.add_accumulator_to_tokens()
+                return
+            if current.is_quotes():
+                self.tokenize_dtd_quotes()
+                current = self.read()
+                continue
+            if current.is_empty_spaces():
+                self.skip_forward()
+                current = self.read()
+                continue
+            if self.search(">"):
+                self.add_string(">")
+                return
+            self.add_token_to_accumulator(current)
+            current = self.read()
+
+    def tokenize_conditional(self) -> None:
+        if not self.search("<!["):
+            return
+        self.add_string("<![")
+        current = self.read()
+        while current is not None:
+            if self.search("<"):
+                self.add_accumulator_to_tokens()
+                return
+            if current.is_empty_spaces():
+                self.skip_forward()
+                current = self.read()
+                continue
+            if self.search("["):
+                self.add_string("[")
+                return
+            if self.search("]]>"):
+                self.add_string("]]>")
+                return
+            self.add_token_to_accumulator(current)
+            current = self.read()
+
+    def get_token_list(self) -> None | list[Token]:
         self.clear_session()
         if self.read() is None:
             return None
-        if self.is_xml_declaration():
-            self.tokenize_tag(xml_declaration=True)
+        # start DTD
+        if self.search("<!DOCTYPE"):
+            self.tokenize_doctype()
             return self.tokens
+        if self.search("<!ELEMENT") or self.search("<!ATTLIST"):
+            self.tokenize_element_or_attlist()
+            return self.tokens
+        if self.search("<!ENTITY") or self.search("<!NOTATION"):
+            self.tokenize_entity_or_notation()
+            return self.tokens
+        if self.search("<!["):
+            self.tokenize_conditional()
+            return self.tokens
+        # end DTD
         if self.search("<!--"):
             self.tokenize_comment()
             return self.tokens
         if self.search("<![CDATA["):
             self.tokenize_cdata()
             return self.tokens
+        if self.is_xml_declaration():
+            self.tokenize_start_tag(xml_declaration=True)
+            return self.tokens
         if self.search("<?"):
             self.tokenize_instructions()
             return self.tokens
-        if self.search("<!"):
-            self.tokenize_dtd()
-            return self.tokens
         if self.search("</"):
-            self.tokenize_closing_tag()
+            self.tokenize_end_tag()
             return self.tokens
         if self.search("<"):
-            self.tokenize_tag(xml_declaration=False)
+            self.tokenize_start_tag(xml_declaration=False)
             return self.tokens
         self.tokenize_text()
         return self.tokens
@@ -509,9 +697,9 @@ complete_example = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\
 
 buffer_controller = BufferController()
 buffer_controller.add_buffer_unit(complete_example, "In-memory buffer")
-tokens = buffer_controller.get_element_tokens()
+tokens = buffer_controller.get_token_list()
 while tokens is not None:
-    tokens = buffer_controller.get_element_tokens()
+    tokens = buffer_controller.get_token_list()
 print()
 
 

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE example SYSTEM "example1.dtd" [
+    <!ENTITY % case1 "INCLUDE">
+    <!ENTITY % case2 "INCLUDE">
+]
+>
+<example>
+    <title>Sample XML File</title>
+    <content>This file demonstrates an ignored DTD section.</content>
+</example>

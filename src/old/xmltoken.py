@@ -1,7 +1,6 @@
 from __future__ import annotations
-from tkinter import NO
 
-from shared import EMPTY_SPACES
+from xmlvalidator import EMPTY_SPACES
 
 
 class XMLToken:
