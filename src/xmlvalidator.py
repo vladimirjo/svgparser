@@ -47,11 +47,11 @@ class ValidatorAttribute:
     def __init__(
         self,
         name_token: Token,
-        parent_tag: ValidatorTag | None = None,
+        parent: None | ValidatorTag | ValidatorXmlDeclaration,
         error_collector: ErrorCollector | None = None,
     ) -> None:
         self.name = name_token
-        self.parent_tag = parent_tag
+        self.parent = parent
         self.error_collector = error_collector
         verify_element_or_attribute_name(self.name, self.error_collector)
         self.value: None | Token = None
@@ -64,12 +64,17 @@ class ValidatorAttribute:
 
 
 class ValidatorCData:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(
+        self,
+        element_tokens: list[Token],
+        error_collector: ErrorCollector | None = None,
+    ) -> None:
         self.tokens = element_tokens
         self.error_collector = error_collector
         self.content: None | Token = None
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDocument | ValidatorTag = None
         self.verify_start()
         self.verify_end()
         self.verify_and_get_content()
@@ -106,17 +111,22 @@ class ValidatorCData:
             if self.error_collector is not None:
                 self.error_collector.add_token_start(self.tokens[self.current], "Invalid CData element.")
             return
-        self.current += 1
         self.content = self.tokens[self.current]
+        self.current += 1
 
 
 class ValidatorComment:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(
+        self,
+        element_tokens: list[Token],
+        error_collector: ErrorCollector | None = None,
+    ) -> None:
         self.tokens = element_tokens
         self.error_collector = error_collector
         self.content: None | Token = None
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDocument | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorTag = None
         self.verify_start()
         self.verify_end()
         self.verify_and_get_content()
@@ -162,12 +172,13 @@ class ValidatorDoctype:
         self.error_collector = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDocument | ValidatorTag = None
         self.rootname: Token | None = None
         self.extern_system: None | Token = None
         self.extern_public: None | Token = None
         self.intern_declarations_closed = True
         self.closed = False
-        self.doctype_tree: list[
+        self.children: list[
             ValidatorDtdElement
             | ValidatorDtdAttlist
             | ValidatorDtdEntity
@@ -183,6 +194,29 @@ class ValidatorDoctype:
         self.optional_verify_and_get_intern_dtd()
         self.check_trailing()
 
+    def __repr__(self):
+        if self.rootname is None:
+            return "Doctype"
+        return f"Doctype: {self.rootname.chars}"
+
+    def get_active_includeignore(self) -> None | ValidatorDtdIncludeIgnore:
+        if len(self.children) == 0:
+            return None
+        active_includeignore: None | ValidatorDtdIncludeIgnore = None
+        if isinstance(self.children[-1], ValidatorDtdIncludeIgnore) and not self.children[-1].closed:
+            active_includeignore = self.children[-1]
+        else:
+            return active_includeignore
+        while len(active_includeignore.children) > 0:
+            if (
+                isinstance(active_includeignore.children[-1], ValidatorDtdIncludeIgnore)
+                and not active_includeignore.children[-1].closed
+            ):
+                active_includeignore = active_includeignore.children[-1]
+            else:
+                break
+        return active_includeignore
+
     def is_ending(self, text: ValidatorParsedText) -> bool:
         if text.content is None:
             return False
@@ -195,14 +229,25 @@ class ValidatorDoctype:
         text.content.remove_length_from_left(second_stop)
         return True
 
-    def is_element_added_to_tree(
+    def is_element_added_to_doctype(
         self,
-        element: Any,
+        element: ValidatorTag
+        | ValidatorCData
+        | ValidatorComment
+        | ValidatorDoctype
+        | ValidatorDtdElement
+        | ValidatorDtdAttlist
+        | ValidatorDtdNotation
+        | ValidatorDtdEntity
+        | ValidatorDtdIncludeIgnore
+        | ValidatorInstructions
+        | ValidatorParsedText
+        | ValidatorXmlDeclaration,
     ) -> bool:
         if self.closed:
             return False
-        if len(self.doctype_tree) > 0 and isinstance(self.doctype_tree[-1], ValidatorDtdIncludeIgnore):
-            if self.doctype_tree[-1].is_element_added_to_tree(element):
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorDtdIncludeIgnore):
+            if self.children[-1].is_element_added_to_includeignore(element):
                 return True
         if isinstance(
             element,
@@ -216,7 +261,8 @@ class ValidatorDoctype:
                 ValidatorInstructions,
             ),
         ):
-            self.doctype_tree.append(element)
+            element.parent = self
+            self.children.append(element)
             return True
         if isinstance(element, ValidatorParsedText) and self.is_ending(element):
             self.closed = True
@@ -225,12 +271,12 @@ class ValidatorDoctype:
             self.error_collector.add_token_start(self.tokens[0], "Doctype tree was not properly closed.")
             if isinstance(element, ValidatorCData):
                 self.error_collector.add_token_start(element.tokens[0], "Cdata cannot be added to Doctype tree.")
-            if isinstance(element, ValidatorAttribute):
-                self.error_collector.add_token_start(element.name, "Tag attribute cannot be added to Doctype tree.")
             if isinstance(element, ValidatorTag):
                 self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Doctype tree.")
             if isinstance(element, ValidatorParsedText):
                 self.error_collector.add_token_start(element.tokens[0], "Parsed text cannot be added to Doctype tree.")
+            if isinstance(element, ValidatorDoctype):
+                self.error_collector.add_token_start(element.tokens[0], "Doctype cannot be added to Doctype tree.")
             if isinstance(element, ValidatorXmlDeclaration):
                 self.error_collector.add_token_start(
                     element.tokens[0], "Xml declaration cannot be added to Doctype tree."
@@ -339,12 +385,18 @@ class ValidatorDtdElement:
         self.error_collector = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
         self.element: None | Token = None
         self.definition_tokens: None | list[Token] = None
         self.verify_start()
         self.verify_end()
         self.verify_and_get_element()
         self.verify_and_get_definition_tokens()
+
+    def __repr__(self):
+        if self.element is None:
+            return "DtdElement"
+        return f"DtdElement: {self.element.chars}"
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!ELEMENT"):
@@ -379,6 +431,7 @@ class ValidatorDtdAttlist:
         self.error_collector = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
         self.element: None | Token = None
         self.attribute: None | Token = None
         self.definition_tokens: None | list[Token] = None
@@ -387,6 +440,13 @@ class ValidatorDtdAttlist:
         self.verify_and_get_element()
         self.verify_and_get_attribute()
         self.verify_and_get_definition_tokens()
+
+    def __repr__(self):
+        if self.element is None:
+            return "DtdAttlist"
+        if self.attribute is None:
+            return f"DtdAttlist: {self.element.chars}"
+        return f"DtdAttlist: {self.element.chars} {self.attribute.chars}"
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!ATTLIST"):
@@ -430,6 +490,7 @@ class ValidatorDtdEntity:
         self.error_collector = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
         self.name: None | Token = None
         self.intern_value: None | Token = None
         self.extern_system: None | Token = None
@@ -438,6 +499,11 @@ class ValidatorDtdEntity:
         self.verify_end()
         self.verify_and_get_name()
         self.verify_and_get_entity_type()
+
+    def __repr__(self):
+        if self.name is None:
+            return "DtdEntity"
+        return f"DtdEntity: {self.name.chars}"
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!ENTITY"):
@@ -515,6 +581,7 @@ class ValidatorDtdNotation:
         self.error_collector = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
         self.notation: None | Token = None
         self.value: None | Token = None
         self.verify_start()
@@ -522,6 +589,13 @@ class ValidatorDtdNotation:
         self.verify_and_get_notation()
         self.verify_and_get_value()
         self.check_trailing()
+
+    def __repr__(self):
+        if self.notation is None:
+            return "DtdNotation"
+        if self.value is None:
+            return f"DtdNotation: {self.notation.chars}"
+        return f"DtdNotation: {self.notation.chars} {self.value.chars}"
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!NOTATION"):
@@ -592,9 +666,8 @@ class ValidatorDtdIncludeIgnore:
         self.end = len(self.tokens) - 1
         self.include: bool = False
         self.closed: bool = False
-        self.parent: None | ValidatorDtdIncludeIgnore = None
-        self.current_includeignore: None | ValidatorDtdIncludeIgnore = None
-        self.includeignore_tree: list[
+        self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
+        self.children: list[
             ValidatorDtdElement
             | ValidatorDtdAttlist
             | ValidatorDtdEntity
@@ -609,6 +682,29 @@ class ValidatorDtdIncludeIgnore:
         self.verify_begin_section()
         self.check_trailing()
 
+    def __repr__(self):
+        if self.include:
+            return "DtdConditional: Include"
+        return "DtdConditional: Ignore"
+
+    # def get_active_includeignore(self) -> None | ValidatorDtdIncludeIgnore:
+    #     if len(self.children) == 0:
+    #         return None
+    #     active_includeignore: None | ValidatorDtdIncludeIgnore = None
+    #     if isinstance(self.children[-1], ValidatorDtdIncludeIgnore) and not self.children[-1].closed:
+    #         active_includeignore = self.children[-1]
+    #     else:
+    #         return active_includeignore
+    #     while len(active_includeignore.children) > 0:
+    #         if (
+    #             isinstance(active_includeignore.children[-1], ValidatorDtdIncludeIgnore)
+    #             and not active_includeignore.children[-1].closed
+    #         ):
+    #             active_includeignore = active_includeignore.children[-1]
+    #         else:
+    #             break
+    #     return active_includeignore
+
     def is_ending(self, text: ValidatorParsedText) -> bool:
         if text.content is None:
             return False
@@ -618,57 +714,73 @@ class ValidatorDtdIncludeIgnore:
         text.content.remove_length_from_left(length_to_remove)
         return True
 
-    def is_element_added_to_tree(self, element: Any) -> bool:
+    def is_element_added_to_includeignore(
+        self,
+        element: ValidatorTag
+        | ValidatorCData
+        | ValidatorComment
+        | ValidatorDoctype
+        | ValidatorDtdElement
+        | ValidatorDtdAttlist
+        | ValidatorDtdNotation
+        | ValidatorDtdEntity
+        | ValidatorDtdIncludeIgnore
+        | ValidatorInstructions
+        | ValidatorParsedText
+        | ValidatorXmlDeclaration,
+    ) -> bool:
         if self.closed:
             return False
-        if self.current_includeignore is not None:
-            if isinstance(element, ValidatorDtdIncludeIgnore):
-                self.current_includeignore.includeignore_tree.append(element)
-                element.parent = self.current_includeignore
-                self.current_includeignore = element
-            elif isinstance(
-                element,
-                (
-                    ValidatorDtdElement,
-                    ValidatorDtdAttlist,
-                    ValidatorDtdEntity,
-                    ValidatorDtdNotation,
-                    ValidatorDtdIncludeIgnore,
-                    ValidatorComment,
-                    ValidatorInstructions,
-                ),
-            ):
-                self.current_includeignore.includeignore_tree.append(element)
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorDtdIncludeIgnore):
+            if self.children[-1].is_element_added_to_includeignore(element):
                 return True
-            elif isinstance(element, ValidatorParsedText) and self.is_ending(element):
-                self.current_includeignore.closed = True
-                self.current_includeignore = self.current_includeignore.parent
-                return True
-            else:
-                if self.error_collector is not None:
-                    self.error_collector.add_token_start(self.tokens[0], "Dtd conditional was not properly closed.")
-                    if isinstance(element, ValidatorCData):
-                        self.error_collector.add_token_start(
-                            element.tokens[0], "Cdata cannot be added to Doctype tree."
-                        )
-                    if isinstance(element, ValidatorAttribute):
-                        self.error_collector.add_token_start(element.name, "Attribute cannot be added to Doctype tree.")
-                    if isinstance(element, ValidatorTag):
-                        self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Doctype tree.")
-                    if isinstance(element, ValidatorParsedText):
-                        self.error_collector.add_token_start(
-                            element.tokens[0], "Parsed text cannot be added to Doctype tree."
-                        )
-                    if isinstance(element, ValidatorXmlDeclaration):
-                        self.error_collector.add_token_start(
-                            element.tokens[0], "Xml declaration cannot be added to Doctype tree."
-                        )
-                return False
-        if isinstance(element, ValidatorDtdIncludeIgnore):
-            self.includeignore_tree.append(element)
-            element.parent = self.current_includeignore
-            self.current_includeignore = element
-            return True
+        # if self.current_includeignore is not None:
+        #     if isinstance(element, ValidatorDtdIncludeIgnore):
+        #         self.current_includeignore.children.append(element)
+        #         element.parent = self.current_includeignore
+        #         self.current_includeignore = element
+        #     elif isinstance(
+        #         element,
+        #         (
+        #             ValidatorDtdElement,
+        #             ValidatorDtdAttlist,
+        #             ValidatorDtdEntity,
+        #             ValidatorDtdNotation,
+        #             ValidatorDtdIncludeIgnore,
+        #             ValidatorComment,
+        #             ValidatorInstructions,
+        #         ),
+        #     ):
+        #         self.current_includeignore.children.append(element)
+        #         return True
+        #     elif isinstance(element, ValidatorParsedText) and self.is_ending(element):
+        #         self.current_includeignore.closed = True
+        #         self.current_includeignore = self.current_includeignore.parent
+        #         return True
+        #     else:
+        #         if self.error_collector is not None:
+        #             self.error_collector.add_token_start(self.tokens[0], "Dtd conditional was not properly closed.")
+        #             if isinstance(element, ValidatorCData):
+        #                 self.error_collector.add_token_start(
+        #                     element.tokens[0], "Cdata cannot be added to Doctype tree."
+        #                 )
+        #             if isinstance(element, ValidatorAttribute):
+        #                 self.error_collector.add_token_start(element.name, "Attribute cannot be added to Doctype tree.")
+        #             if isinstance(element, ValidatorTag):
+        #                 self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Doctype tree.")
+        #             if isinstance(element, ValidatorParsedText):
+        #                 self.error_collector.add_token_start(
+        #                     element.tokens[0], "Parsed text cannot be added to Doctype tree."
+        #                 )
+        #             if isinstance(element, ValidatorXmlDeclaration):
+        #                 self.error_collector.add_token_start(
+        #                     element.tokens[0], "Xml declaration cannot be added to Doctype tree."
+        #                 )
+        #         return False
+        # if isinstance(element, ValidatorDtdIncludeIgnore):
+        #     element.parent = self
+        #     self.children.append(element)
+        #     return True
         if isinstance(
             element,
             (
@@ -681,21 +793,24 @@ class ValidatorDtdIncludeIgnore:
                 ValidatorInstructions,
             ),
         ):
-            self.includeignore_tree.append(element)
+            element.parent = self
+            self.children.append(element)
             return True
         if isinstance(element, ValidatorParsedText) and self.is_ending(element):
             self.closed = True
             return True
         if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Doctype tree was not properly closed.")
+            self.error_collector.add_token_start(self.tokens[0], "Conditional block was not properly closed.")
             if isinstance(element, ValidatorCData):
-                self.error_collector.add_token_start(element.tokens[0], "Cdata cannot be added to Doctype tree.")
-            if isinstance(element, ValidatorAttribute):
-                self.error_collector.add_token_start(element.name, "Tag attribute cannot be added to Doctype tree.")
+                self.error_collector.add_token_start(element.tokens[0], "Cdata cannot be added to Conditional block.")
             if isinstance(element, ValidatorTag):
-                self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Doctype tree.")
+                self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Conditional block.")
             if isinstance(element, ValidatorParsedText):
-                self.error_collector.add_token_start(element.tokens[0], "Parsed text cannot be added to Doctype tree.")
+                self.error_collector.add_token_start(
+                    element.tokens[0], "Parsed text cannot be added to Conditional block"
+                )
+            if isinstance(element, ValidatorDoctype):
+                self.error_collector.add_token_start(element.tokens[0], "Doctype cannot be added to Conditional block")
             if isinstance(element, ValidatorXmlDeclaration):
                 self.error_collector.add_token_start(
                     element.tokens[0], "Xml declaration cannot be added to Doctype tree."
@@ -758,6 +873,7 @@ class ValidatorInstructions:
         self.content: None | Token = None
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDocument | ValidatorDtdIncludeIgnore | ValidatorDoctype | ValidatorTag = None
         self.verify_start()
         self.verify_end()
         self.verify_and_get_content()
@@ -802,12 +918,16 @@ class ValidatorInstructions:
 
 
 class ValidatorTag:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(
+        self,
+        element_tokens: list[Token],
+        error_collector: ErrorCollector | None = None,
+    ) -> None:
         self.tokens = element_tokens
         self.error_collector = error_collector
         self.name: None | Token = None
         self.closed = False
-        self.parent: None | ValidatorTag = None
+        self.parent: None | ValidatorDocument | ValidatorTag = None
         self.children: list[
             ValidatorTag
             | ValidatorCData
@@ -815,8 +935,8 @@ class ValidatorTag:
             | ValidatorDoctype
             | ValidatorDtdElement
             | ValidatorDtdAttlist
-            | ValidatorDtdEntity
             | ValidatorDtdNotation
+            | ValidatorDtdEntity
             | ValidatorDtdIncludeIgnore
             | ValidatorInstructions
             | ValidatorParsedText
@@ -834,6 +954,72 @@ class ValidatorTag:
         if self.name is None:
             return "Empty Tag"
         return f"Tag: {self.name.chars}"
+
+    def is_element_added_to_tag(
+        self,
+        element: ValidatorTag
+        | ValidatorCData
+        | ValidatorComment
+        | ValidatorDoctype
+        | ValidatorDtdElement
+        | ValidatorDtdAttlist
+        | ValidatorDtdNotation
+        | ValidatorDtdEntity
+        | ValidatorDtdIncludeIgnore
+        | ValidatorInstructions
+        | ValidatorParsedText
+        | ValidatorXmlDeclaration,
+    ) -> bool:
+        if self.closed:
+            return False
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorDoctype):
+            if self.children[-1].is_element_added_to_doctype(element):
+                return True
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorDtdIncludeIgnore):
+            if self.children[-1].is_element_added_to_includeignore(element):
+                return True
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorTag):
+            if self.children[-1].is_element_added_to_tag(element):
+                return True
+        if isinstance(
+            element,
+            (
+                ValidatorCData,
+                ValidatorComment,
+                ValidatorInstructions,
+                ValidatorTag,
+            ),
+        ):
+            element.parent = self
+            self.children.append(element)
+            return True
+        if isinstance(element, ValidatorParsedText):
+            element.parent = self
+            self.children.append(element)
+            element.add_to_tree = False
+            return True
+        if self.error_collector is not None:
+            if isinstance(element, ValidatorDoctype):
+                self.error_collector.add_token_start(
+                    element.tokens[0], "Doctype should be added before root tag element."
+                )
+            if isinstance(element, ValidatorDtdAttlist):
+                self.error_collector.add_token_start(element.tokens[0], "Attlist should be inside Doctype.")
+            if isinstance(element, ValidatorDtdElement):
+                self.error_collector.add_token_start(element.tokens[0], "Element should be inside Doctype.")
+            if isinstance(element, ValidatorDtdEntity):
+                self.error_collector.add_token_start(element.tokens[0], "Entity should be inside Doctype.")
+            if isinstance(element, ValidatorDtdNotation):
+                self.error_collector.add_token_start(element.tokens[0], "Notation should be inside Doctype.")
+            if isinstance(element, ValidatorDtdIncludeIgnore):
+                self.error_collector.add_token_start(element.tokens[0], "Conditional should be inside Doctype.")
+            if isinstance(element, ValidatorXmlDeclaration):
+                self.error_collector.add_token_start(
+                    element.tokens[0], "Xml declaration cannot be added to Doctype tree."
+                )
+        element.parent = self
+        self.children.append(element)
+        return False
 
     def verify_start(self) -> None:
         if self.tokens[self.current].match("<"):
@@ -936,6 +1122,7 @@ class ValidatorParsedText:
     def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
         self.tokens = element_tokens
         self.error_collector = error_collector
+        self.parent: None | ValidatorDocument | ValidatorTag = None
         self.content: None | Token = None
         self.add_to_tree: bool = True
         self.get_content()
@@ -966,7 +1153,7 @@ class ValidatorParsedText:
     def __repr__(self):
         if self.content is None:
             return "Empty Text"
-        return f"Text: {self.content.chars}"
+        return f"Text: {self.content.chars.strip()}"
 
 
 class ValidatorXmlDeclaration:
@@ -975,6 +1162,7 @@ class ValidatorXmlDeclaration:
         self.error_collector = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
+        self.parent: None | ValidatorDocument | ValidatorTag = None
         self.attributes: list[ValidatorAttribute] = []
         self.verify_start()
         self.verify_end()
@@ -1138,18 +1326,17 @@ class ValidatorXmlDeclaration:
                     attribute.value = attribute_value
                 self.current += 1
                 continue
-            attribute = ValidatorAttribute(self.tokens[self.current])
+            attribute = ValidatorAttribute(self.tokens[self.current], self, self.error_collector)
             self.attributes.append(attribute)
             self.current += 1
 
 
-class XmlValidator:
+class ValidatorDocument:
     def __init__(self) -> None:
         self.buffer_controller = BufferController()
         self.error_collector = ErrorCollector()
         self.dtd: None = None
-        self.current_node: ValidatorTag | None = None
-        self.validation_tree: list[
+        self.children: list[
             ValidatorTag
             | ValidatorCData
             | ValidatorComment
@@ -1170,45 +1357,62 @@ class XmlValidator:
     def read_file(self, filename: str) -> None:
         pass
 
-    def parse_closing_tag(self, token_list: list[Token]) -> None:
+    def parse_end_tag(self, tokens: list[Token]) -> None:
         # name of a closing tag
-        if not token_list[0].match("</"):
-            self.error_collector.add_token_start(token_list[0], "Invalid closing tag.")
+        if not tokens[0].match("</"):
+            self.error_collector.add_token_start(tokens[0], "Invalid closing tag.")
             return
-        if len(token_list) == 1:
-            self.error_collector.add_token_start(token_list[0], "Incomplete closing tag.")
+        if len(tokens) == 1:
+            self.error_collector.add_token_start(tokens[0], "Incomplete closing tag.")
             return
-        if len(token_list) == 2:
-            if token_list[1].match(">"):
-                self.error_collector.add_token_start(token_list[1], "Closing tag is missing tag name.")
+        if len(tokens) == 2:
+            if tokens[1].match(">"):
+                self.error_collector.add_token_start(tokens[1], "Closing tag is missing tag name.")
                 return
             else:
-                self.error_collector.add_token_end(token_list[1], "Closing tag is missing closing bracket.")
-        if len(token_list) == 3 and not token_list[2].match(">"):
-            self.error_collector.add_token_end(token_list[1], "Invalid closing sequence for the closing tag.")
-        closing_tagname = token_list[1].chars
+                self.error_collector.add_token_end(tokens[1], "Closing tag is missing closing bracket.")
+        if len(tokens) == 3 and not tokens[2].match(">"):
+            self.error_collector.add_token_end(tokens[1], "Invalid closing sequence for the closing tag.")
+        endtag_name = tokens[1].chars
         # Check for blank spaces in beggining of a name
-        current_node = self.current_node
+        active_tag = self.get_active_tag()
+        if active_tag is None:
+            self.error_collector.add_token_start(tokens[1], "End tag not matching any start tag.")
+            return
         missing_close_tags: list[ValidatorTag] = []
-        while current_node is not None:
-            if current_node.close_tag(closing_tagname):
-                self.current_node = current_node.parent
+        while isinstance(active_tag, ValidatorTag):
+            if active_tag.close_tag(endtag_name):
                 if len(missing_close_tags) > 0:
                     for tag in missing_close_tags:
                         if tag.name is not None:
                             self.error_collector.add_token_start(tag.name, "The tag is missing its closing tag.")
                 break
             else:
-                missing_close_tags.append(current_node)
-                current_node = current_node.parent
-        if current_node is None:
-            self.error_collector.add_token_start(token_list[1], "Closing tag not matching any other tag.")
+                missing_close_tags.append(active_tag)
+                active_tag = active_tag.parent
+        if active_tag is None or isinstance(active_tag, ValidatorDocument):
+            self.error_collector.add_token_start(tokens[1], "End tag not matching any start tag.")
+
+    def get_active_tag(self) -> None | ValidatorTag:
+        if len(self.children) == 0:
+            return None
+        active_tag: None | ValidatorTag = None
+        if isinstance(self.children[-1], ValidatorTag) and not self.children[-1].closed:
+            active_tag = self.children[-1]
+        else:
+            return None
+        while len(active_tag.children) > 0:
+            if isinstance(active_tag.children[-1], ValidatorTag) and not active_tag.children[-1].closed:
+                active_tag = active_tag.children[-1]
+            else:
+                break
+        return active_tag
 
     def check_closing_tags(self) -> None:
-        current = self.current_node
-        if current is not None:
-            self.error_collector.add_token_start(current.tokens[0], "Missing close tag.")
-            current = current.parent
+        active_tag = self.get_active_tag()
+        while isinstance(active_tag, ValidatorTag):
+            self.error_collector.add_token_start(active_tag.tokens[0], "Missing close tag.")
+            active_tag = active_tag.parent
 
     def add_element_to_validation_tree(
         self,
@@ -1225,85 +1429,163 @@ class XmlValidator:
         | ValidatorParsedText
         | ValidatorXmlDeclaration,
     ) -> None:
-        if self.current_node is None:
-            if len(self.validation_tree) > 0 and isinstance(self.validation_tree[-1], ValidatorDoctype):
-                if self.validation_tree[-1].is_element_added_to_tree(element):
-                    return
-            if len(self.validation_tree) > 0 and isinstance(self.validation_tree[-1], ValidatorDtdIncludeIgnore):
-                if self.validation_tree[-1].is_element_added_to_tree(element):
-                    return
-            self.validation_tree.append(element)
-            return
-        ###############
-        if len(self.current_node.children) > 0 and isinstance(self.current_node.children[-1], ValidatorDoctype):
-            if self.current_node.children[-1].is_element_added_to_tree(element):
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorDoctype):
+            if self.children[-1].is_element_added_to_doctype(element):
                 return
-        if len(self.current_node.children) > 0 and isinstance(
-            self.current_node.children[-1], ValidatorDtdIncludeIgnore
-        ):
-            if self.current_node.children[-1].is_element_added_to_tree(element):
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorDtdIncludeIgnore):
+            if self.children[-1].is_element_added_to_includeignore(element):
                 return
-        self.current_node.children.append(element)
-        ################
+        if len(self.children) > 0 and isinstance(self.children[-1], ValidatorTag):
+            if self.children[-1].is_element_added_to_tag(element):
+                return
         if isinstance(element, ValidatorParsedText):
-            element.add_to_tree = True
-        ################
-        if isinstance(element, ValidatorTag):
-            element.parent = self.current_node
-            self.current_node = element
-            if element.closed:
-                self.current_node = self.current_node.parent
+            element.add_to_tree = False
+        element.parent = self
+        self.children.append(element)
+
+    def validate_tag_location(self, tag: ValidatorTag) -> None:
+        if isinstance(tag.parent, ValidatorDocument):
+            tag_index = tag.parent.children.index(tag)
+            is_valid = True
+            i = 0
+            while i < tag_index:
+                if isinstance(tag.parent.children[i], ValidatorTag):
+                    is_valid = False
+                    break
+                i += 1
+            if not is_valid:
+                self.error_collector.add_token_start(tag.tokens[0], "Only one root tag is allowed.")
+
+    def validate_cdata_and_parsedtext_location(self, text: ValidatorCData | ValidatorParsedText) -> None:
+        if not isinstance(text.parent, ValidatorDocument) and text.parent is not None:
+            return
+        if isinstance(text, ValidatorCData):
+            self.error_collector.add_token_start(text.tokens[0], "Cdata sections can be only inside a tag element.")
+            return
+        self.error_collector.add_token_start(text.tokens[0], "Parsed text can be only inside a tag element.")
+
+    def validate_xmldecl_location(self, xmldecl: ValidatorXmlDeclaration) -> None:
+        if isinstance(xmldecl.parent, ValidatorDocument):
+            i = xmldecl.parent.children.index(xmldecl)
+            if i > 0:
+                self.error_collector.add_token_start(
+                    xmldecl.tokens[0], "Xml prologue must be declared first in document."
+                )
+        return
+
+    def validate_doctype_location(self, doctype: ValidatorDoctype) -> None:
+        if isinstance(doctype.parent, ValidatorDocument):
+            doctype_index = doctype.parent.children.index(doctype)
+            is_valid = True
+            i = 0
+            while i < doctype_index:
+                if isinstance(doctype.parent.children[i], ValidatorTag):
+                    is_valid = False
+                    break
+                i += 1
+            if not is_valid:
+                self.error_collector.add_token_start(
+                    doctype.tokens[0], "Doctype must come after either xml declaration,comments or instructions."
+                )
+
+    def validate_dtd_elements(
+        self,
+        dtd_element: ValidatorDtdAttlist
+        | ValidatorDtdElement
+        | ValidatorDtdEntity
+        | ValidatorDtdNotation
+        | ValidatorDtdIncludeIgnore,
+    ) -> None:
+        if isinstance(dtd_element.parent, ValidatorDocument):
+            self.error_collector.add_token_start(dtd_element.tokens[0], "Dtd elements must be inside Doctype section.")
+        return
 
     def build_validation_tree(self) -> None:
-        token_list = self.buffer_controller.get_token_list()
-        while token_list is not None:
-            match token_list[0].chars:
+        tokens = self.buffer_controller.get_buffer_tokens()
+        while tokens is not None:
+            match tokens[0].chars:
                 case "<?xml":
-                    element = ValidatorXmlDeclaration(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<!DOCTYPE":
-                    element = ValidatorDoctype(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<!ELEMENT":
-                    element = ValidatorDtdElement(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<!ATTLIST":
-                    element = ValidatorDtdAttlist(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<!NOTATION":
-                    element = ValidatorDtdNotation(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<!ENTITY":
-                    element = ValidatorDtdEntity(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<![":
-                    element = ValidatorDtdIncludeIgnore(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<?":
-                    element = ValidatorInstructions(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
-                case "<!--":
-                    element = ValidatorComment(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
+                    xmldecl = ValidatorXmlDeclaration(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(xmldecl)
+                    self.validate_xmldecl_location(xmldecl)
                 case "<![CDATA[":
-                    element = ValidatorCData(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
+                    cdata = ValidatorCData(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(cdata)
+                    self.validate_cdata_and_parsedtext_location(cdata)
+                case "<!DOCTYPE":
+                    doctype = ValidatorDoctype(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(doctype)
+                    self.validate_doctype_location(doctype)
+                case "<!ELEMENT":
+                    dtd_element = ValidatorDtdElement(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(dtd_element)
+                    self.validate_dtd_elements(dtd_element)
+                case "<!ATTLIST":
+                    dtd_attlist = ValidatorDtdAttlist(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(dtd_attlist)
+                    self.validate_dtd_elements(dtd_attlist)
+                case "<!NOTATION":
+                    dtd_notation = ValidatorDtdNotation(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(dtd_notation)
+                    self.validate_dtd_elements(dtd_notation)
+                case "<!ENTITY":
+                    dtd_entity = ValidatorDtdEntity(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(dtd_entity)
+                    self.validate_dtd_elements(dtd_entity)
+                case "<![":
+                    dtd_includeignore = ValidatorDtdIncludeIgnore(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(dtd_includeignore)
+                    self.validate_dtd_elements(dtd_includeignore)
+                case "<?":
+                    instructions = ValidatorInstructions(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(instructions)
+                case "<!--":
+                    comment = ValidatorComment(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(comment)
                 case "</":
-                    self.parse_closing_tag(token_list)
+                    self.parse_end_tag(tokens)
                 case "<":
-                    element = ValidatorTag(token_list, self.error_collector)
-                    self.add_element_to_validation_tree(element)
+                    tag = ValidatorTag(tokens, self.error_collector)
+                    self.add_element_to_validation_tree(tag)
+                    self.validate_tag_location(tag)
                 case _:
-                    if len(token_list) > 1:
-                        raise ValueError("Text node cannot have more than 1 token.")
-                    element = ValidatorParsedText(token_list, self.error_collector)
-                    while not element.is_empty() and element.add_to_tree:
-                        self.add_element_to_validation_tree(element)
-            token_list = self.buffer_controller.get_token_list()
+                    parsedtext = ValidatorParsedText(tokens, self.error_collector)
+                    while not parsedtext.is_empty() and parsedtext.add_to_tree:
+                        self.add_element_to_validation_tree(parsedtext)
+                    if not parsedtext.is_empty:
+                        parsedtext.verify_content()
+                        self.validate_cdata_and_parsedtext_location(parsedtext)
+            tokens = self.buffer_controller.get_buffer_tokens()
         self.check_closing_tags()
 
-    def print_tree(self) -> None:
-        pass
+    def print_tree(
+        self,
+        element: (
+            None
+            | ValidatorTag
+            | ValidatorCData
+            | ValidatorComment
+            | ValidatorDoctype
+            | ValidatorDtdElement
+            | ValidatorDtdAttlist
+            | ValidatorDtdNotation
+            | ValidatorDtdEntity
+            | ValidatorDtdIncludeIgnore
+            | ValidatorInstructions
+            | ValidatorParsedText
+            | ValidatorXmlDeclaration
+        ) = None,
+        indent: int = 0,
+    ) -> None:
+        if element is None:
+            for child in self.children:
+                print(f"{child.__repr__().strip()}")
+                self.print_tree(child, indent + 1)
+        if isinstance(element, ValidatorDoctype | ValidatorTag | ValidatorDtdIncludeIgnore):
+            for child in element.children:
+                num_indents = (indent * 2 - 1) * "-"
+                print(f"|{num_indents}{child}")
+                self.print_tree(child, indent + 1)
 
 
 xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<!-- This is the root element of the XML document -->
@@ -1440,7 +1722,8 @@ dtd = """<!DOCTYPE person [
     <!ELEMENT person (name, profession*)>
 ]>"""
 
-xmlvalidator = XmlValidator()
-xmlvalidator.read_buffer(nested_dtd1)
+xmlvalidator = ValidatorDocument()
+xmlvalidator.read_buffer(xml)
 xmlvalidator.build_validation_tree()
+xmlvalidator.print_tree()
 print()

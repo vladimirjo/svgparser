@@ -650,10 +650,13 @@ class BufferController:
             self.add_token_to_accumulator(current)
             current = self.read()
 
-    def get_token_list(self) -> None | list[Token]:
+    def get_buffer_tokens(self) -> None | list[Token]:
         self.clear_session()
         if self.read() is None:
             return None
+        if self.search("<![CDATA["):
+            self.tokenize_cdata()
+            return self.tokens
         # start DTD
         if self.search("<!DOCTYPE"):
             self.tokenize_doctype()
@@ -670,9 +673,6 @@ class BufferController:
         # end DTD
         if self.search("<!--"):
             self.tokenize_comment()
-            return self.tokens
-        if self.search("<![CDATA["):
-            self.tokenize_cdata()
             return self.tokens
         if self.is_xml_declaration():
             self.tokenize_start_tag(xml_declaration=True)
@@ -697,9 +697,9 @@ complete_example = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\
 
 buffer_controller = BufferController()
 buffer_controller.add_buffer_unit(complete_example, "In-memory buffer")
-tokens = buffer_controller.get_token_list()
+tokens = buffer_controller.get_buffer_tokens()
 while tokens is not None:
-    tokens = buffer_controller.get_token_list()
+    tokens = buffer_controller.get_buffer_tokens()
 print()
 
 

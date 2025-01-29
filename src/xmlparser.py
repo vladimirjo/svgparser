@@ -653,7 +653,7 @@ class XmlParser:
         return False
 
     def build_element_list(self) -> None:
-        element_tokens = self.buffer_controller.get_token_list()
+        element_tokens = self.buffer_controller.get_buffer_tokens()
         while element_tokens is not None:
             match element_tokens[0].chars:
                 case "<?xml":
@@ -681,7 +681,7 @@ class XmlParser:
                     if not self.element_text_is_empty(element_tokens):
                         xml_text = ElementText(element_tokens, self.error_collector)
                         self.element_list.append(xml_text)
-            element_tokens = self.buffer_controller.get_token_list()
+            element_tokens = self.buffer_controller.get_buffer_tokens()
 
 
 xml = """ <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<!-- This is the root element of the XML document -->
