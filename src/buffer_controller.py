@@ -49,6 +49,19 @@ class Token:
         self.fragments: list[Fragment] = []
         self.fragments.append(fragment)
 
+    def __hash__(self):
+        return hash(self.chars)
+
+    def __eq__(self, other: str | Token):
+        if isinstance(other, Token):
+            return self.chars == other.chars
+        if isinstance(other, str):
+            return self.chars == other
+        return False
+
+    def __repr__(self):
+        return f"({self.chars!r})"
+
     def startswith(self, search_string: str) -> bool:
         if self.chars.startswith(search_string):
             return True
@@ -140,38 +153,38 @@ class Token:
             self.buffer_slot = fragments[0].buffer_slot
             self.buffer_pointer = fragments[0].buffer_pointer
 
-    def extract(self, length: int) -> Token:
-        if length <= 0:
-            raise ValueError("Length to extract must be larger than 0.")
-        if length > len(self.chars):
-            length = len(self.chars)
-        length_to_remove = length
-        fragments: list[Fragment] = []
-        i = 0
-        while length > 0 and i < len(self.fragments):
-            if length >= len(self.fragments[i].chars):
-                new_fragment = Fragment(
-                    self.fragments[i].chars,
-                    self.fragments[i].buffer_pointer,
-                    self.fragments[i].buffer_slot,
-                )
-                fragments.append(new_fragment)
-                length -= len(new_fragment.chars)
-                i += 1
-            else:
-                new_fragment = Fragment(
-                    self.fragments[i].chars[:length],
-                    self.fragments[i].buffer_pointer,
-                    self.fragments[i].buffer_slot,
-                )
-                fragments.append(new_fragment)
-                length -= len(new_fragment.chars)
-        i = 1
-        new_token = Token(fragments[0])
-        while i < len(fragments):
-            new_token.add_fragment(fragments[i])
-        self.remove_length_from_left(length_to_remove)
-        return new_token
+    # def extract(self, length: int) -> Token:
+    #     if length <= 0:
+    #         raise ValueError("Length to extract must be larger than 0.")
+    #     if length > len(self.chars):
+    #         length = len(self.chars)
+    #     length_to_remove = length
+    #     fragments: list[Fragment] = []
+    #     i = 0
+    #     while length > 0 and i < len(self.fragments):
+    #         if length >= len(self.fragments[i].chars):
+    #             new_fragment = Fragment(
+    #                 self.fragments[i].chars,
+    #                 self.fragments[i].buffer_pointer,
+    #                 self.fragments[i].buffer_slot,
+    #             )
+    #             fragments.append(new_fragment)
+    #             length -= len(new_fragment.chars)
+    #             i += 1
+    #         else:
+    #             new_fragment = Fragment(
+    #                 self.fragments[i].chars[:length],
+    #                 self.fragments[i].buffer_pointer,
+    #                 self.fragments[i].buffer_slot,
+    #             )
+    #             fragments.append(new_fragment)
+    #             length -= len(new_fragment.chars)
+    #     i = 1
+    #     new_token = Token(fragments[0])
+    #     while i < len(fragments):
+    #         new_token.add_fragment(fragments[i])
+    #     self.remove_length_from_left(length_to_remove)
+    #     return new_token
 
     def search_preceded_by_whitespace(self, substring: str, start: int = 0) -> int:
         while start < len(self.chars):

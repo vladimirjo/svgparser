@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from itertools import accumulate
-from typing import TYPE_CHECKING, Any
+from tkinter import N
+from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
     from buffer_controller import Token
 
 from buffer_controller import BufferController
+from dtd import Dtd
 from shared import verify_content_or_attribute_value
 from shared import verify_element_or_attribute_name
 
@@ -1335,7 +1336,7 @@ class ValidatorDocument:
     def __init__(self) -> None:
         self.buffer_controller = BufferController()
         self.error_collector = ErrorCollector()
-        self.dtd: None = None
+        self.dtd: None | Dtd = None
         self.children: list[
             ValidatorTag
             | ValidatorCData
@@ -1500,6 +1501,36 @@ class ValidatorDocument:
             self.error_collector.add_token_start(dtd_element.tokens[0], "Dtd elements must be inside Doctype section.")
         return
 
+    def add_doctype_to_dtd(self, doctype: ValidatorDoctype) -> None:
+        if self.dtd is not None:
+            self.error_collector.add_token_start(doctype.tokens[0], "Dtd is already defined.")
+        self.dtd = Dtd(doctype.rootname, self.error_collector)
+
+    def add_dtdelement_to_dtd(self, dtdelement: ValidatorDtdElement) -> None:
+        if self.dtd is None:
+            self.dtd = Dtd(None, self.error_collector)
+        if dtdelement.element is not None and dtdelement.definition_tokens is not None:
+            self.dtd.define_element(dtdelement.element, dtdelement.definition_tokens)
+
+    def validate_tag_in_dtd(self, tag: ValidatorTag) -> bool:
+        if self.dtd is None:
+            return False
+        if tag.name is not None:
+            parsed_element = tag.name
+        parsed_child_elements: list[Token] = []
+        for child in tag.children:
+            if isinstance(child, ValidatorTag):
+                if child.name is not None:
+                    parsed_child_elements.append(child.name)
+                    continue
+            # if isinstance(child, ValidatorCData):
+            #     parsed_children.append(child)
+            #     continue
+            # if isinstance(child, ValidatorParsedText):
+            #     parsed_children.append(child)
+            #     continue
+        return self.dtd.validate_parsed_element_with_element_definitions(parsed_element, parsed_child_elements)
+
     def build_validation_tree(self) -> None:
         tokens = self.buffer_controller.get_buffer_tokens()
         while tokens is not None:
@@ -1515,10 +1546,12 @@ class ValidatorDocument:
                 case "<!DOCTYPE":
                     doctype = ValidatorDoctype(tokens, self.error_collector)
                     self.add_element_to_validation_tree(doctype)
+                    self.add_doctype_to_dtd(doctype)
                     self.validate_doctype_location(doctype)
                 case "<!ELEMENT":
                     dtd_element = ValidatorDtdElement(tokens, self.error_collector)
                     self.add_element_to_validation_tree(dtd_element)
+                    self.add_dtdelement_to_dtd(dtd_element)
                     self.validate_dtd_elements(dtd_element)
                 case "<!ATTLIST":
                     dtd_attlist = ValidatorDtdAttlist(tokens, self.error_collector)
@@ -1715,15 +1748,40 @@ nested_dtd1 = """<!DOCTYPE library [
 basic_tag = """<ns:item id="a1&lt;" value="Example A">"""
 
 dtd = """<!DOCTYPE person [
-    <!ELEMENT first_name (#PCDATA)>
-    <!ELEMENT last_name (#PCDATA)>
-    <!ELEMENT profession (#PCDATA)>
-    <!ELEMENT name (first_name, last_name)>
-    <!ELEMENT person (name, profession*)>
-]>"""
+    <!ELEMENT first_name ((#PCDATA | title), (paragraph | image)*)>
+    <!ELEMENT title (#PCDATA)>
+    <!ELEMENT paragraph (#PCDATA)>
+    <!ELEMENT image EMPTY>
+    <!ATTLIST image src CDATA #REQUIRED>
+]>
+<person>
+    <first_name>
+        Dr. <!-- #PCDATA allowed here -->
+        <title>John</title> <!-- Title allowed -->
+        <paragraph>Brief introduction about John.</paragraph>
+        <image src="john.png"/>
+        <paragraph>More details about John's background.</paragraph>
+    </first_name>
+</person>"""
+
+simple_dtd = """<!DOCTYPE person [
+    <!ELEMENT person (name, age, address)*>
+]>
+<person>
+    <name>John Doe</name>
+    <age>30</age>
+    <address>123 Main St</address>
+    <name>John Doe</name>
+
+</person>"""
 
 xmlvalidator = ValidatorDocument()
-xmlvalidator.read_buffer(xml)
+xmlvalidator.read_buffer(simple_dtd)
 xmlvalidator.build_validation_tree()
-xmlvalidator.print_tree()
+if isinstance(xmlvalidator.children[1], ValidatorTag) and isinstance(
+    xmlvalidator.children[1].children[0], ValidatorTag
+):
+    tag = xmlvalidator.children[1]
+print(xmlvalidator.validate_tag_in_dtd(tag))
+# xmlvalidator.print_tree()
 print()
