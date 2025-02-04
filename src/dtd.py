@@ -94,6 +94,7 @@ class ElementDefinitionsEmpty:
 
 class ElementDefinitionsDefined:
     def __init__(self, tokens: list[Token], parent: None | ElementDefinitionsDefined = None) -> None:
+        self.__representation = self.get_representation(tokens)
         self.tokens = tokens
         self.parent = parent
         self.is_definition_valid: bool = True
@@ -101,22 +102,22 @@ class ElementDefinitionsDefined:
         self.strip_paranthesis()
         if not self.is_definition_valid:
             return
-        self.active_path = True
-        self.used = 0
-        # self.carry_child_element_to_next_definition = False
         self.order: ElementDefinitionsOrder = ElementDefinitionsOrder.SINGLE_ELEMENT
         self.child_definitions: list[ElementDefinitionsDefined] = []
         self.target: Token | None = None
         self.parse_tokens()
 
-    def __repr__(self) -> str:
+    def get_representation(self, tokens: list[Token]) -> str:
         text = ""
-        for index, token in enumerate(self.tokens):
-            if index == len(self.tokens) - 1:
+        for index, token in enumerate(tokens):
+            if index == len(tokens) - 1:
                 text += token.chars
             else:
                 text += token.chars + " "
         return text
+
+    def __repr__(self) -> str:
+        return self.__representation
 
     def get_modifier(self) -> ElementDefinitionsModifier:
         if self.tokens[-1] == ("?"):
@@ -194,201 +195,164 @@ class ElementDefinitionsDefined:
 
 
 class ElementDefinitionsDefinedValidator:
-    def __init__(self, declared_element_tree: ElementDefinitionsDefined) -> None:
-        self.declared_element_tree = declared_element_tree
-
-    def check_modifier_when_found(self, edd: ElementDefinitionsDefined) -> bool:
-        match edd.modifier:
-            case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                edd.active_path = False
-                if edd.used > 1:
-                    return False
-                return True
-            case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-                edd.active_path = True
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-                edd.active_path = True
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-                if edd.used > 1:
-                    edd.active_path = False
-                    return False
-                edd.active_path = True
-                return True
-
-    def check_modifier_when_not_found(self, edd: ElementDefinitionsDefined) -> bool:
-        edd.active_path = False
-        match edd.modifier:
-            case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                pass
-            # case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-            #     if edd.used >= 1:
-            #         edd.carry_child_element_to_next_definition = True
-            # case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-            #     if edd.used >= 0:
-            #         edd.carry_child_element_to_next_definition = True
-            # case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-            #     if edd.used == 0 or edd.used == 1:
-            #         edd.carry_child_element_to_next_definition = True
-            # case _:
-            #     raise ValueError()
-        return False
-
-    def are_child_definitions_deactivated(self, edd: ElementDefinitionsDefined) -> bool:
-        result = True
-        for child in edd.child_definitions:
-            if child.active_path:
-                result = False
-                break
-        return result
-
-    def is_child_element_used(self, edd: ElementDefinitionsDefined) -> bool:
-        match edd.modifier:
-            case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                if edd.used == 1:
-                    return True
-                return False
-            case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-                if edd.used >= 1:
-                    return True
-                return False
-            case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-                if edd.used == 0 or edd.used == 1:
-                    return True
-                return False
-
-    def is_search_criteria_met(self, edd: ElementDefinitionsDefined) -> bool:
-        if len(edd.child_definitions) == 0:
-            return self.is_child_element_used(edd)
-            # return self.is_active_path_modifier_met_after_search(edd)
-        # SEQUENCE OR CHOICE
-        i = 0
-        result = False
-        while i < len(edd.child_definitions):
-            if edd.order == ElementDefinitionsOrder.SINGLE_ELEMENT or edd.order == ElementDefinitionsOrder.SEQUENCE:
-                if not self.is_search_criteria_met(edd.child_definitions[i]):
-                    result = False
-                    break
-                result = True
-                i += 1
-                continue
-            if edd.order == ElementDefinitionsOrder.CHOICE:
-                if self.is_search_criteria_met(edd.child_definitions[i]):
-                    result = result or True
-                else:
-                    result = result or False
-                i += 1
-                continue
-        return result
-
-    def reset_active_path(self, edd: ElementDefinitionsDefined) -> None:
-        if len(edd.child_definitions) == 0:
-            edd.active_path = True
-            edd.used = 0
-            return
+    def __init__(
+        self, edd: ElementDefinitionsDefined, parent: None | ElementDefinitionsDefinedValidator = None
+    ) -> None:
+        self.__representation = str(f"{edd!r}")
+        self.parent = parent
+        self.modifier: ElementDefinitionsModifier = edd.modifier
+        self.order: ElementDefinitionsOrder = edd.order
+        self.target: Token | None = edd.target
+        self.match_count = 0
+        self.branches: list[ElementDefinitionsDefinedValidator] = []
+        self.availavle_branches: list[ElementDefinitionsDefinedValidator] = []
         for child_definition in edd.child_definitions:
-            self.reset_active_path(child_definition)
+            child_branch = ElementDefinitionsDefinedValidator(child_definition, self)
+            self.branches.append(child_branch)
+            self.availavle_branches.append(child_branch)
 
-    def is_target_modifier_met_before_search(self, edd: ElementDefinitionsDefined) -> bool:
-        match edd.modifier:
-            case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                if edd.used == 1:
-                    return False
-                return True
-            case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-                if edd.used > 1:
-                    return False
-                return True
+    def __repr__(self) -> str:
+        return self.__representation
 
-    def is_active_path_modifier_met_after_search(self, edd: ElementDefinitionsDefined) -> bool:
-        match edd.modifier:
-            case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                if edd.used == 1:
-                    return False
-                return True
-            case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-                if edd.used == 0:
-                    return True
-                return False
-            case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-                if edd.used < 1:
-                    return True
-                return False
-
-    def is_target(self, edd: ElementDefinitionsDefined) -> bool:
-        if len(edd.child_definitions) == 0:
+    def is_target(self) -> bool:
+        if (
+            len(self.branches) == 0
+            and self.order == ElementDefinitionsOrder.SINGLE_ELEMENT
+            and self.target is not None
+            and self.availavle_branches is None
+        ):
             return True
         return False
 
-    def is_child_element_match_with_target(self, child_element: Token, edd: ElementDefinitionsDefined) -> bool:
-        if edd.target == child_element and self.is_target_modifier_met_before_search(edd):
-            edd.used += 1
-            edd.active_path = False
-            return True
+    def set_next_branch(self) -> None:
+        if self.availavle_branches is None:
+            return
+        index_chosen_branch = self.branches.index(self.availavle_branches)
+        if index_chosen_branch + 1 < len(self.branches):
+            self.availavle_branches = self.branches[index_chosen_branch + 1]
         else:
-            edd.active_path = False
-            return False
+            self.availavle_branches = None
 
-    def get_active_child_element_path(self, edd: ElementDefinitionsDefined) -> None | ElementDefinitionsDefined:
-        self.reopen_transit_before_match(edd)
-        for child_edd in edd.child_definitions:
-            if child_edd.active_path:
-                return child_edd
-        return None
-
-    def reopen_transit_before_match(self, edd: ElementDefinitionsDefined) -> None:
-        if edd.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
+    def reset_child_branches(self) -> None:
+        if (
+            self.modifier == ElementDefinitionsModifier.ONE_OR_MORE_TIMES
+            or self.modifier == ElementDefinitionsModifier.ZERO_OR_MORE_TIMES
+            or (self.modifier == ElementDefinitionsModifier.ZERO_OR_ONE_TIMES and self.match_count < 1)
+        ):
+            for child_branch in self.branches:
+                child_branch.match_count = 0
+            self.availavle_branches = self.branches[0]
             return
-        if edd.order == ElementDefinitionsOrder.SEQUENCE:
-            if not self.is_active_path_modifier_met_after_search(edd.child_definitions[-1]):
-                self.reset_active_path(edd)
-        return
 
-    def close_transit_after_mismatch(self, edd: ElementDefinitionsDefined) -> None:
-        if edd.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
+    def is_modifier_valid(self) -> bool:
+        match self.modifier:
+            case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
+                return True
+            case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
+                return True
+            case ElementDefinitionsModifier.ONLY_ONE_TIME:
+                if self.match_count < 1:
+                    return True
+            case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
+                if self.match_count < 1:
+                    return True
+        return False
+
+    def set_parent_with_sequence_after_match(self) -> None:
+        if self.parent is None:
             return
-        if edd.order == ElementDefinitionsOrder.SEQUENCE:
-            is_closed = True
-            for child_definition in edd.child_definitions:
-                if child_definition.active_path:
-                    is_closed = False
-                    return
-        return
+        self.parent.set_next_branch()
+        if self.parent.availavle_branches is None:
+            self.parent.match_count += 1
+            self.parent.reset_child_branches()
 
-    def is_element_match_with_definition(self, child_element: Token, edd: ElementDefinitionsDefined) -> bool:
-        # FOUND TARGET
-        if self.is_target(edd):
-            return self.is_child_element_match_with_target(child_element, edd)
+    def set_parent_with_choice_after_match(self) -> None:
+        if self.parent is None:
+            return
+        self.parent.match_count += 1
+        self.parent.reset_child_branches()
+        if self.parent.modifier == ElementDefinitionsModifier.ONLY_ONE_TIME or (
+            self.parent.modifier == ElementDefinitionsModifier.ZERO_OR_ONE_TIMES and self.parent.match_count >= 1
+        ):
+            self.parent.availavle_branches = None
 
-        # SEQUENCE OR CHOICE
-        is_match: bool = False
-        active_child_element_path = self.get_active_child_element_path(edd)
-        while active_child_element_path is not None:
-            is_match = self.is_element_match_with_definition(child_element, active_child_element_path)
-            if is_match:
-                edd.used += 1
+    def set_parent_with_choice_after_no_match(self) -> None:
+        if self.parent is None:
+            return
+        self.parent.set_next_branch()
+
+    def set_parent_with_sequence_after_no_match(self) -> None:
+        if self.parent is None:
+            return
+        self.parent.availavle_branches = None
+
+    def set_parent_after_match(self) -> None:
+        if self.parent is None:
+            return
+        if not self.is_match_complete():
+            return
+        if self.parent.order == ElementDefinitionsOrder.CHOICE:
+            self.set_parent_with_choice_after_match()
+        if self.parent.order == ElementDefinitionsOrder.SEQUENCE:
+            self.set_parent_with_sequence_after_match()
+
+    def set_parent_after_no_match(self) -> None:
+        if self.availavle_branches is not None:
+            return
+        if self.parent is not None:
+            if self.parent.order == ElementDefinitionsOrder.CHOICE:
+                self.set_parent_with_choice_after_no_match()
+            if self.parent.order == ElementDefinitionsOrder.SEQUENCE:
+                self.set_parent_with_sequence_after_no_match()
+
+    # def is_match_complete(self) -> bool:
+    #     # if self.order == ElementDefinitionsOrder.CHOICE:
+    #     #     return True
+    #     # elif self.order == ElementDefinitionsOrder.SEQUENCE:
+    #     if self.chosen_branch is None:
+    #         return True
+    #     else:
+    #         return False
+    #     # else:
+    #     #     return True
+
+    def match_element(self, element: Token) -> bool:
+        # TARGET
+        if self.is_target():
+            target_match = self.target == element and self.is_modifier_valid()
+            if target_match:
+                self.match_count += 1
+                self.set_parent_after_match()
                 return True
             else:
-                self.close_transit_after_mismatch(edd)
-            active_child_element_path = self.get_active_child_element_path(edd)
+                self.set_parent_after_no_match()
+                return False
+
+        # SEQUENCE OR CHOICE
+        while self.availavle_branches is not None:
+            if self.availavle_branches.match_element(element):
+                self.set_parent_after_match()
+                return True
+            else:
+                self.set_parent_after_no_match()
         return False
 
-    def validate_parsed_element_with_element_definitions(self, parsed_child_elements: list[Token]) -> bool:
-        i = 0
-        while i < len(parsed_child_elements):
-            self.is_element_match_with_definition(parsed_child_elements[i], self.declared_element_tree)
+        # if self.order == ElementDefinitionsOrder.CHOICE:
+        #     while self.chosen_branch is not None:
+        #         if self.chosen_branch.match_element(element):
+        #             self.set_parent_after_match()
+        #             return True
+        #         else:
+        #             self.set_parent_after_no_match()
+        #     return False
 
-            i += 1
-        return self.is_search_criteria_met(self.declared_element_tree)
+        # if self.order == ElementDefinitionsOrder.SEQUENCE:
+        #     if self.chosen_branch.match_element(element):
+        #         self.set_parent_after_match()
+        #         return True
+        #     else:
+        #         self.set_parent_after_no_match()
+        # return False
 
 
 class Dtd:
@@ -427,6 +391,46 @@ class Dtd:
             return
         self.element_definitions[element_name] = ElementDefinitionsDefined(tokens)
 
+    def is_validation_complete(self, eddvalidator: ElementDefinitionsDefinedValidator) -> bool:
+        if eddvalidator.is_target():
+            match eddvalidator.modifier:
+                case ElementDefinitionsModifier.ONLY_ONE_TIME:
+                    if eddvalidator.match_count == 1:
+                        return True
+                    return False
+                case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
+                    if eddvalidator.match_count >= 1:
+                        return True
+                    return False
+                case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
+                    return True
+                case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
+                    if eddvalidator.match_count == 0 or eddvalidator.match_count == 1:
+                        return True
+                    return False
+        # SEQUENCE OR CHOICE
+        i = 0
+        result = False
+        for transit_definition in eddvalidator.branches:
+            if transit_definition.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
+                pass
+                continue
+            if transit_definition.order == ElementDefinitionsOrder.SEQUENCE:
+                if not self.is_validation_complete(transit_definition):
+                    result = False
+                    break
+                result = True
+                i += 1
+                continue
+            if transit_definition.order == ElementDefinitionsOrder.CHOICE:
+                if self.is_validation_complete(transit_definition):
+                    result = result or True
+                else:
+                    result = result or False
+                i += 1
+                continue
+        return result
+
     def validate_parsed_element_with_element_definitions(
         self, parsed_element: Token, parsed_child_elements: list[Token]
     ) -> bool:
@@ -440,9 +444,14 @@ class Dtd:
         if isinstance(element_definition, ElementDefinitionsEmpty):
             return False
         if isinstance(element_definition, ElementDefinitionsDefined):
-            edd = copy.deepcopy(element_definition)
-            eddvalidator = ElementDefinitionsDefinedValidator(edd)
-            return eddvalidator.validate_parsed_element_with_element_definitions(parsed_child_elements)
+            edd_tree = ElementDefinitionsDefinedValidator(element_definition)
+            match_valid: bool = True
+            for child_element in parsed_child_elements:
+                if not edd_tree.match_element(child_element):
+                    match_valid = False
+                    break
+            return match_valid
+            # return match_valid and self.is_validation_complete(edd_tree)
         if self.error_collector is not None:
             self.error_collector.add_token_start(parsed_element, "Element is registered with invalid defintion.")
         return False

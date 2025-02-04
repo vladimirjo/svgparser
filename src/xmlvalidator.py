@@ -1765,7 +1765,7 @@ dtd = """<!DOCTYPE person [
 </person>"""
 
 simple_dtd = """<!DOCTYPE person [
-    <!ELEMENT person (name, age, address)*>
+    <!ELEMENT person (name, age?, address)*>
 ]>
 <person>
     <name>John Doe</name>
@@ -1775,8 +1775,40 @@ simple_dtd = """<!DOCTYPE person [
 
 </person>"""
 
+dtd1 = """<!DOCTYPE person [
+    <!ELEMENT person (name,address)*>
+]>
+<person>
+    <name>John Doe</name>
+    <address>123 Main St</address>
+    <name>John Doe</name>
+    <address>123 Main St</address>
+</person>"""
+
+dtd_choice = """<!DOCTYPE person [
+    <!ELEMENT person (a|b)*>
+]>
+<person>
+    <b>John Doe</b>
+    <a>John Doe</a>
+    <c>John Doe</c>
+    <b>John Doe</b>
+    <a>John Doe</a>
+</person>"""
+
+dtd_sequence = """<!DOCTYPE test [
+    <!ELEMENT test ((e1 | (e2 , (e3 | (e4 , e5*)))), e6)>
+]>
+<test>
+    <e2></e2>
+    <e4></e4>
+    <e5></e5>
+    <e5></e5>
+    <e6></e6>
+</test>"""
+
 xmlvalidator = ValidatorDocument()
-xmlvalidator.read_buffer(simple_dtd)
+xmlvalidator.read_buffer(dtd_sequence)
 xmlvalidator.build_validation_tree()
 if isinstance(xmlvalidator.children[1], ValidatorTag) and isinstance(
     xmlvalidator.children[1].children[0], ValidatorTag
