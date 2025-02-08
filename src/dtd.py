@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-import copy
 
 
 if TYPE_CHECKING:
@@ -17,12 +16,12 @@ from enum import auto
 from enum import unique
 
 
-@unique
-class ElementDefinitionsModifier(Enum):
-    ONLY_ONE_TIME = auto()
-    ZERO_OR_ONE_TIMES = auto()
-    ONE_OR_MORE_TIMES = auto()
-    ZERO_OR_MORE_TIMES = auto()
+# @unique
+# class ElementDefinitionsModifier(Enum):
+#     ONLY_ONE_TIME = auto()
+#     ZERO_OR_ONE_TIMES = auto()
+#     ONE_OR_MORE_TIMES = auto()
+#     ZERO_OR_MORE_TIMES = auto()
 
 
 @unique
@@ -98,7 +97,7 @@ class ElementDefinitionsDefined:
         self.tokens = tokens
         self.parent = parent
         self.is_definition_valid: bool = True
-        self.modifier: ElementDefinitionsModifier = self.get_modifier()
+        self.modifier: int = self.get_modifier()
         self.strip_paranthesis()
         if not self.is_definition_valid:
             return
@@ -119,17 +118,21 @@ class ElementDefinitionsDefined:
     def __repr__(self) -> str:
         return self.__representation
 
-    def get_modifier(self) -> ElementDefinitionsModifier:
+    def get_modifier(self) -> int:
+        # 0: ONLY_ONE_TIME
+        # 1: ZERO_OR_ONE_TIMES
+        # 2: ONE_OR_MORE_TIMES
+        # 3: ZERO_OR_MORE_TIMES
         if self.tokens[-1] == ("?"):
             self.tokens.pop(-1)
-            return ElementDefinitionsModifier.ZERO_OR_ONE_TIMES
+            return 1
         if self.tokens[-1] == ("+"):
             self.tokens.pop(-1)
-            return ElementDefinitionsModifier.ONE_OR_MORE_TIMES
+            return 2
         if self.tokens[-1] == ("*"):
             self.tokens.pop(-1)
-            return ElementDefinitionsModifier.ZERO_OR_MORE_TIMES
-        return ElementDefinitionsModifier.ONLY_ONE_TIME
+            return 3
+        return 0
 
     def strip_paranthesis(self) -> None:
         if self.tokens[0] == ("("):
@@ -194,165 +197,363 @@ class ElementDefinitionsDefined:
             self.child_definitions.append(child_definition)
 
 
-class ElementDefinitionsDefinedValidator:
+class ModifierDefinition:
+    def __init__(self, modifier: int) -> None:
+        self.modifier = modifier
+
+    def __repr__(self) -> str:
+        # 0: ONLY_ONE_TIME
+        # 1: ZERO_OR_ONE_TIMES
+        # 2: ONE_OR_MORE_TIMES
+        # 3: ZERO_OR_MORE_TIMES
+        match self.modifier:
+            case 0:
+                return "ONLY_ONE_TIME"
+            case 1:
+                return "ZERO_OR_ONE_TIME"
+            case 2:
+                return "ONE_OR_MORE_TIMES"
+            case 3:
+                return "ZERO_OR_MORE_TIMES"
+            case _:
+                return "UNKNOWN"
+
+    def is_optional(self, count: int) -> bool:
+        match self.modifier:
+            case 0:
+                return False
+            case 1:
+                if count == 0:
+                    return True
+                return False
+            case 2:
+                if count >= 1:
+                    return True
+                return False
+            case 3:
+                return True
+            case _:
+                raise ValueError("Unknown value for Modifier.")
+
+    def is_fulfilled(self, count: int) -> bool:
+        match self.modifier:
+            case 0:
+                if count == 1:
+                    return True
+                return False
+            case 1:
+                if count == 0 or count == 1:
+                    return True
+                return False
+            case 2:
+                if count >= 1:
+                    return True
+                return False
+            case 3:
+                if count >= 0:
+                    return True
+                return False
+            case _:
+                raise ValueError("Unknown value for Modifier.")
+
+
+class ChoiceDefinition:
     def __init__(
-        self, edd: ElementDefinitionsDefined, parent: None | ElementDefinitionsDefinedValidator = None
+        self,
+        representation: str,
+        modifier: ModifierDefinition,
+        parent: TreeDefinitionValidator | SequenceDefinition | ChoiceDefinition,
     ) -> None:
-        self.__representation = str(f"{edd!r}")
+        self.__representation = representation
         self.parent = parent
-        self.modifier: ElementDefinitionsModifier = edd.modifier
-        self.order: ElementDefinitionsOrder = edd.order
-        self.target: Token | None = edd.target
-        self.match_count = 0
-        self.branches: list[ElementDefinitionsDefinedValidator] = []
-        self.availavle_branches: list[ElementDefinitionsDefinedValidator] = []
-        for child_definition in edd.child_definitions:
-            child_branch = ElementDefinitionsDefinedValidator(child_definition, self)
-            self.branches.append(child_branch)
-            self.availavle_branches.append(child_branch)
+        self.modifier = modifier
+        self.count = 0
+        self.branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
+
+    def is_optional(self) -> bool:
+        return self.modifier.is_optional(self.count)
+
+    def is_fulfilled(self) -> bool:
+        return self.modifier.is_fulfilled(self.count)
+
+    def get_available_branches(self) -> list[SequenceDefinition | ChoiceDefinition | TargetDefinition]:
+        available_branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
+        for branch in self.branches:
+            if branch.is_optional():
+                available_branches.append(branch)
+            elif not branch.is_fulfilled():
+                available_branches.append(branch)
+        return available_branches
+
+    def are_all_branches_fulfilled(self) -> bool:
+        for branch in self.branches:
+            if branch.is_fulfilled():
+                return True
+        return False
+
+    def register_match(self) -> None:
+        if not self.are_all_branches_fulfilled():
+            return
+        self.count += 1
+        if not self.is_fulfilled():
+            return
+        if isinstance(self.parent, TreeDefinitionValidator):
+            return
+        self.parent.register_match()
 
     def __repr__(self) -> str:
         return self.__representation
 
-    def is_target(self) -> bool:
-        if (
-            len(self.branches) == 0
-            and self.order == ElementDefinitionsOrder.SINGLE_ELEMENT
-            and self.target is not None
-            and self.availavle_branches is None
-        ):
-            return True
-        return False
 
-    def set_next_branch(self) -> None:
-        if self.availavle_branches is None:
-            return
-        index_chosen_branch = self.branches.index(self.availavle_branches)
-        if index_chosen_branch + 1 < len(self.branches):
-            self.availavle_branches = self.branches[index_chosen_branch + 1]
-        else:
-            self.availavle_branches = None
+class SequenceDefinition:
+    def __init__(
+        self,
+        representation: str,
+        modifier: ModifierDefinition,
+        parent: TreeDefinitionValidator | SequenceDefinition | ChoiceDefinition,
+    ) -> None:
+        self.__representation = representation
+        self.parent = parent
+        self.modifier = modifier
+        self.count = 0
+        self.branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
 
-    def reset_child_branches(self) -> None:
-        if (
-            self.modifier == ElementDefinitionsModifier.ONE_OR_MORE_TIMES
-            or self.modifier == ElementDefinitionsModifier.ZERO_OR_MORE_TIMES
-            or (self.modifier == ElementDefinitionsModifier.ZERO_OR_ONE_TIMES and self.match_count < 1)
-        ):
-            for child_branch in self.branches:
-                child_branch.match_count = 0
-            self.availavle_branches = self.branches[0]
-            return
+    def is_optional(self) -> bool:
+        return self.modifier.is_optional(self.count)
 
-    def is_modifier_valid(self) -> bool:
-        match self.modifier:
-            case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-                return True
-            case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-                return True
-            case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                if self.match_count < 1:
-                    return True
-            case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-                if self.match_count < 1:
-                    return True
-        return False
+    def is_fulfilled(self) -> bool:
+        return self.modifier.is_fulfilled(self.count)
 
-    def set_parent_with_sequence_after_match(self) -> None:
-        if self.parent is None:
-            return
-        self.parent.set_next_branch()
-        if self.parent.availavle_branches is None:
-            self.parent.match_count += 1
-            self.parent.reset_child_branches()
+    def get_available_branches(self) -> list[SequenceDefinition | ChoiceDefinition | TargetDefinition]:
+        available_branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
+        for branch in self.branches:
+            if branch.is_optional():
+                available_branches.append(branch)
+                continue
+            if branch.is_fulfilled():
+                available_branches = []
+                continue
+            else:
+                available_branches.append(branch)
+                break
+        # if len(available_branches) > 0 and not available_branches[-1].is_optional():
+        #     self.register_unfulfilled_sequence()
+        return available_branches
 
-    def set_parent_with_choice_after_match(self) -> None:
-        if self.parent is None:
-            return
-        self.parent.match_count += 1
-        self.parent.reset_child_branches()
-        if self.parent.modifier == ElementDefinitionsModifier.ONLY_ONE_TIME or (
-            self.parent.modifier == ElementDefinitionsModifier.ZERO_OR_ONE_TIMES and self.parent.match_count >= 1
-        ):
-            self.parent.availavle_branches = None
-
-    def set_parent_with_choice_after_no_match(self) -> None:
-        if self.parent is None:
-            return
-        self.parent.set_next_branch()
-
-    def set_parent_with_sequence_after_no_match(self) -> None:
-        if self.parent is None:
-            return
-        self.parent.availavle_branches = None
-
-    def set_parent_after_match(self) -> None:
-        if self.parent is None:
-            return
-        if not self.is_match_complete():
-            return
-        if self.parent.order == ElementDefinitionsOrder.CHOICE:
-            self.set_parent_with_choice_after_match()
-        if self.parent.order == ElementDefinitionsOrder.SEQUENCE:
-            self.set_parent_with_sequence_after_match()
-
-    def set_parent_after_no_match(self) -> None:
-        if self.availavle_branches is not None:
-            return
-        if self.parent is not None:
-            if self.parent.order == ElementDefinitionsOrder.CHOICE:
-                self.set_parent_with_choice_after_no_match()
-            if self.parent.order == ElementDefinitionsOrder.SEQUENCE:
-                self.set_parent_with_sequence_after_no_match()
-
-    # def is_match_complete(self) -> bool:
-    #     # if self.order == ElementDefinitionsOrder.CHOICE:
-    #     #     return True
-    #     # elif self.order == ElementDefinitionsOrder.SEQUENCE:
-    #     if self.chosen_branch is None:
-    #         return True
-    #     else:
+    # def is_last_branch_optional(self) -> bool:
+    #     available_branches = self.get_available_branches()
+    #     if len(available_branches) == 0:
     #         return False
-    #     # else:
-    #     #     return True
+    #     return available_branches[-1].is_optional()
 
-    def match_element(self, element: Token) -> bool:
-        # TARGET
-        if self.is_target():
-            target_match = self.target == element and self.is_modifier_valid()
-            if target_match:
-                self.match_count += 1
-                self.set_parent_after_match()
-                return True
-            else:
-                self.set_parent_after_no_match()
+    def register_unfulfilled_sequence(self) -> None:
+        tree = self.get_tree()
+        if self not in tree.unfulfilled_sequences:
+            tree.unfulfilled_sequences.append(self)
+
+    def unregister_unfulfilled_sequence(self) -> None:
+        tree = self.get_tree()
+        if self in tree.unfulfilled_sequences:
+            tree.unfulfilled_sequences.remove(self)
+
+    def get_tree(self) -> TreeDefinitionValidator:
+        tree = self.parent
+        while not isinstance(tree, TreeDefinitionValidator):
+            tree = tree.parent
+        return tree
+
+    def are_all_branches_fulfilled(self) -> bool:
+        for branch in self.branches:
+            if not branch.is_fulfilled():
                 return False
+        return True
 
-        # SEQUENCE OR CHOICE
-        while self.availavle_branches is not None:
-            if self.availavle_branches.match_element(element):
-                self.set_parent_after_match()
-                return True
+    def register_match(self) -> None:
+        if not self.are_all_branches_fulfilled():
+            self.register_unfulfilled_sequence()
+            return
+
+        available_branches = self.get_available_branches()
+        if len(available_branches) > 0 and available_branches[-1].is_optional():
+            self.unregister_unfulfilled_sequence()
+        if len(available_branches) == 0:
+            self.unregister_unfulfilled_sequence()
+            self.count += 1
+        # if not self.is_fulfilled():
+        #     return
+        if isinstance(self.parent, TreeDefinitionValidator):
+            return
+        self.parent.register_match()
+
+    def __repr__(self) -> str:
+        return self.__representation
+
+
+class TargetDefinition:
+    def __init__(
+        self,
+        representation: str,
+        modifier: ModifierDefinition,
+        name: Token,
+        parent: TreeDefinitionValidator | SequenceDefinition | ChoiceDefinition,
+    ) -> None:
+        self.__representation = representation
+        self.parent = parent
+        self.modifier = modifier
+        self.count = 0
+        self.name = name
+
+    def is_optional(self) -> bool:
+        return self.modifier.is_optional(self.count)
+
+    def is_fulfilled(self) -> bool:
+        return self.modifier.is_fulfilled(self.count)
+
+    def register_match(self) -> None:
+        self.count += 1
+        if not self.is_fulfilled():
+            return
+        if isinstance(self.parent, TreeDefinitionValidator):
+            return
+        self.parent.register_match()
+
+    def __repr__(self) -> str:
+        return self.__representation
+
+
+class TreeDefinitionValidator:
+    def __init__(self, edd: ElementDefinitionsDefined) -> None:
+        self.__representation = str(f"{edd!r}")
+        self.root: None | ChoiceDefinition | SequenceDefinition | TargetDefinition = None
+        self.unfulfilled_sequences: list[SequenceDefinition] = []
+        self.build_definition_tree(edd)
+
+    def build_definition_tree(
+        self, edd: ElementDefinitionsDefined, parent: None | ChoiceDefinition | SequenceDefinition = None
+    ) -> None:
+        if edd.order == ElementDefinitionsOrder.SINGLE_ELEMENT and edd.target is not None:
+            if parent is None:
+                target = TargetDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), edd.target, self)
+                self.root = target
             else:
-                self.set_parent_after_no_match()
-        return False
+                target = TargetDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), edd.target, parent)
+                parent.branches.append(target)
+            return
 
-        # if self.order == ElementDefinitionsOrder.CHOICE:
-        #     while self.chosen_branch is not None:
-        #         if self.chosen_branch.match_element(element):
-        #             self.set_parent_after_match()
-        #             return True
-        #         else:
-        #             self.set_parent_after_no_match()
-        #     return False
+        elif edd.order == ElementDefinitionsOrder.CHOICE:
+            if parent is None:
+                choice = ChoiceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), self)
+                self.root = choice
+            else:
+                choice = ChoiceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), parent)
+                parent.branches.append(choice)
+            for child_def in edd.child_definitions:
+                self.build_definition_tree(child_def, choice)
+            return
+        elif edd.order == ElementDefinitionsOrder.SEQUENCE:
+            if parent is None:
+                sequence = SequenceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), self)
+                self.root = sequence
+            else:
+                sequence = SequenceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), parent)
+                parent.branches.append(sequence)
+            for child_def in edd.child_definitions:
+                self.build_definition_tree(child_def, sequence)
 
-        # if self.order == ElementDefinitionsOrder.SEQUENCE:
-        #     if self.chosen_branch.match_element(element):
-        #         self.set_parent_after_match()
-        #         return True
-        #     else:
-        #         self.set_parent_after_no_match()
-        # return False
+    def __repr__(self) -> str:
+        return self.__representation
+
+    # def get_available_targets(self) -> list[TargetDefinition]:
+    #     available_targets: list[TargetDefinition] = []
+
+    #     if len(self.unfulfilled_sequences) > 0:
+    #         available_targets = self.search_targets(available_targets, self.unfulfilled_sequences[-1])
+    #     else:
+    #         available_targets = self.search_targets(available_targets)
+    #     return available_targets
+
+    def get_available_targets(
+        self,
+        available_targets: list[TargetDefinition] | None = None,
+        node: ChoiceDefinition | SequenceDefinition | TargetDefinition | None = None,
+    ) -> list[TargetDefinition]:
+        if available_targets is None:
+            available_targets = []
+
+        if node is None:
+            if len(self.unfulfilled_sequences) > 0:
+                node = self.unfulfilled_sequences[-1]
+            else:
+                node = self.root
+
+        if isinstance(node, TargetDefinition):
+            available_targets.append(node)
+        elif isinstance(node, ChoiceDefinition):
+            available_branches = node.get_available_branches()
+            for branch in available_branches:
+                self.get_available_targets(available_targets, branch)
+        elif isinstance(node, SequenceDefinition):
+            available_branches = node.get_available_branches()
+            for branch in available_branches:
+                self.get_available_targets(available_targets, branch)
+        return available_targets
+
+    def match_element(self, element: Token | str, available_targets: list[TargetDefinition]):
+        match_target: None | TargetDefinition = None
+        for target in available_targets:
+            if element == target.name:
+                match_target = target
+                break
+        if match_target is None:
+            return
+        match_target.register_match()
+
+    # def get_available_branches_in_sequence(self) -> list[ElementDefinitionsDefinedValidator]:
+    #     collected_branches: list[ElementDefinitionsDefinedValidator] = []
+    #     for branch in self.branches:
+    #         if branch.is_optional():
+    #             collected_branches.append(branch)
+    #             continue
+    #         if not branch.can_receive():
+    #             continue
+    #         collected_branches.append(branch)
+    #         break
+    #         # if branch.can_receive():
+    #         #     collected_branches.append(branch)
+
+    #     return collected_branches
+
+    # def get_available_branches_in_choice(self) -> list[ElementDefinitionsDefinedValidator]:
+    #     collected_branches: list[ElementDefinitionsDefinedValidator] = []
+    #     for branch in self.branches:
+    #         if branch.can_receive():
+    #             collected_branches.append(branch)
+    #     return collected_branches
+
+    # def get_all_targets(
+    #     self,
+    #     targets: None | list[ElementDefinitionsDefinedValidator] = None,
+    # ) -> list[ElementDefinitionsDefinedValidator]:
+    #     if targets is None:
+    #         targets = []
+
+    #     if self.target is not None and self.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
+    #         if self.can_receive():
+    #             targets.append(self)
+    #         return targets
+
+    #     available_branches = []
+    #     if self.order == ElementDefinitionsOrder.SEQUENCE:
+    #         available_branches = self.get_available_branches_in_sequence()
+    #     elif self.order == ElementDefinitionsOrder.CHOICE:
+    #         available_branches = self.get_available_branches_in_choice()
+    #     else:
+    #         raise ValueError("Order not recognized.")
+
+    #     for branch in available_branches:
+    #         branch.get_all_targets(targets)
+
+    #     return targets
 
 
 class Dtd:
@@ -391,45 +592,52 @@ class Dtd:
             return
         self.element_definitions[element_name] = ElementDefinitionsDefined(tokens)
 
-    def is_validation_complete(self, eddvalidator: ElementDefinitionsDefinedValidator) -> bool:
-        if eddvalidator.is_target():
-            match eddvalidator.modifier:
-                case ElementDefinitionsModifier.ONLY_ONE_TIME:
-                    if eddvalidator.match_count == 1:
-                        return True
-                    return False
-                case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-                    if eddvalidator.match_count >= 1:
-                        return True
-                    return False
-                case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-                    return True
-                case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-                    if eddvalidator.match_count == 0 or eddvalidator.match_count == 1:
-                        return True
-                    return False
-        # SEQUENCE OR CHOICE
-        i = 0
-        result = False
-        for transit_definition in eddvalidator.branches:
-            if transit_definition.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
-                pass
-                continue
-            if transit_definition.order == ElementDefinitionsOrder.SEQUENCE:
-                if not self.is_validation_complete(transit_definition):
-                    result = False
-                    break
-                result = True
-                i += 1
-                continue
-            if transit_definition.order == ElementDefinitionsOrder.CHOICE:
-                if self.is_validation_complete(transit_definition):
-                    result = result or True
-                else:
-                    result = result or False
-                i += 1
-                continue
-        return result
+    # def is_validation_complete(self, eddvalidator: ElementDefinitionsDefinedValidator) -> bool:
+    #     if eddvalidator.is_target():
+    #         match eddvalidator.modifier:
+    #             case ElementDefinitionsModifier.ONLY_ONE_TIME:
+    #                 if eddvalidator.match_count == 1:
+    #                     return True
+    #                 return False
+    #             case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
+    #                 if eddvalidator.match_count >= 1:
+    #                     return True
+    #                 return False
+    #             case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
+    #                 return True
+    #             case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
+    #                 if eddvalidator.match_count == 0 or eddvalidator.match_count == 1:
+    #                     return True
+    #                 return False
+    #     # SEQUENCE OR CHOICE
+    #     i = 0
+    #     result = False
+    #     for transit_definition in eddvalidator.branches:
+    #         if transit_definition.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
+    #             pass
+    #             continue
+    #         if transit_definition.order == ElementDefinitionsOrder.SEQUENCE:
+    #             if not self.is_validation_complete(transit_definition):
+    #                 result = False
+    #                 break
+    #             result = True
+    #             i += 1
+    #             continue
+    #         if transit_definition.order == ElementDefinitionsOrder.CHOICE:
+    #             if self.is_validation_complete(transit_definition):
+    #                 result = result or True
+    #             else:
+    #                 result = result or False
+    #             i += 1
+    #             continue
+    #     return result
+
+    def is_non_deterministic_content_model(self, targets: list[TargetDefinition]) -> bool:
+        result = set()
+        for target in targets:
+            if target.name in result:
+                return True
+        return False
 
     def validate_parsed_element_with_element_definitions(
         self, parsed_element: Token, parsed_child_elements: list[Token]
@@ -444,14 +652,12 @@ class Dtd:
         if isinstance(element_definition, ElementDefinitionsEmpty):
             return False
         if isinstance(element_definition, ElementDefinitionsDefined):
-            edd_tree = ElementDefinitionsDefinedValidator(element_definition)
-            match_valid: bool = True
-            for child_element in parsed_child_elements:
-                if not edd_tree.match_element(child_element):
-                    match_valid = False
-                    break
-            return match_valid
-            # return match_valid and self.is_validation_complete(edd_tree)
+            # edd_tree = TreeDefinitionValidator(element_definition)
+            # available_targets = edd_tree.get_available_targets()
+            # if self.is_non_deterministic_content_model(available_targets):
+            #     # generate error
+            #     pass
+            return False
         if self.error_collector is not None:
             self.error_collector.add_token_start(parsed_element, "Element is registered with invalid defintion.")
         return False
