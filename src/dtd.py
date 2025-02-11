@@ -31,13 +31,6 @@ class ElementDefinitionsOrder(Enum):
     CHOICE = auto()
 
 
-# @unique
-# class ElementDefinitionsType(Enum):
-#     EMPTY = auto()
-#     ANY = auto()
-#     DEFINED = auto()
-
-
 @unique
 class AttributeDefinitonsDefaults(Enum):
     IMPLIED = auto()
@@ -235,7 +228,7 @@ class ModifierDefinition:
             case _:
                 raise ValueError("Unknown value for Modifier.")
 
-    def is_fulfilled(self, count: int) -> bool:
+    def is_finished(self, count: int) -> bool:
         match self.modifier:
             case 0:
                 if count == 1:
@@ -262,47 +255,169 @@ class ChoiceDefinition:
         self,
         representation: str,
         modifier: ModifierDefinition,
-        parent: TreeDefinitionValidator | SequenceDefinition | ChoiceDefinition,
+        parent: None | SequenceDefinition | ChoiceDefinition = None,
     ) -> None:
         self.__representation = representation
         self.parent = parent
         self.modifier = modifier
         self.count = 0
+        self.chosen_branch: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
         self.branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
+
+    def __repr__(self) -> str:
+        return self.__representation
+
+    def get_last_unresolved_branch(self) -> None | SequenceDefinition | ChoiceDefinition | TargetDefinition:
+        if self.chosen_branch is None:
+            return None
+        traverse_node = self.chosen_branch
+        result_node: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
+        while traverse_node is not None:
+            if isinstance(traverse_node, TargetDefinition):
+                result_node = traverse_node
+                break
+            if isinstance(traverse_node, SequenceDefinition):
+                result_node = traverse_node
+                traverse_node = traverse_node.chosen_branch
+            if isinstance(traverse_node, ChoiceDefinition):
+                result_node = traverse_node
+                traverse_node = traverse_node.chosen_branch
+        return result_node
 
     def is_optional(self) -> bool:
         return self.modifier.is_optional(self.count)
 
-    def is_fulfilled(self) -> bool:
-        return self.modifier.is_fulfilled(self.count)
+    def is_finished(self) -> bool:
+        if self.chosen_branch is not None:
+            return False
+        for branch in self.branches:
+            if branch.count > 0:
+                return True
+        return False
+        # return self.modifier.is_finished(self.count)
 
     def get_available_branches(self) -> list[SequenceDefinition | ChoiceDefinition | TargetDefinition]:
         available_branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
-        for branch in self.branches:
-            if branch.is_optional():
-                available_branches.append(branch)
-            elif not branch.is_fulfilled():
-                available_branches.append(branch)
+        i = 0
+        if self.chosen_branch is not None:
+            i = self.branches.index(self.chosen_branch)
+
+        while i < len(self.branches):
+            if self.branches[i].is_optional():
+                available_branches.append(self.branches[i])
+                i += 1
+            elif not self.branches[i].is_finished():
+                available_branches.append(self.branches[i])
+                i += 1
+
         return available_branches
 
-    def are_all_branches_fulfilled(self) -> bool:
-        for branch in self.branches:
-            if branch.is_fulfilled():
-                return True
-        return False
+    def get_available_targets(
+        self,
+        available_targets: list[TargetDefinition] | None = None,
+    ) -> list[TargetDefinition]:
+        if available_targets is None:
+            available_targets = []
 
-    def register_match(self) -> None:
-        if not self.are_all_branches_fulfilled():
-            return
-        self.count += 1
-        if not self.is_fulfilled():
-            return
-        if isinstance(self.parent, TreeDefinitionValidator):
-            return
-        self.parent.register_match()
+        if not self.is_optional() and self.is_finished():
+            return available_targets
 
-    def __repr__(self) -> str:
-        return self.__representation
+        chosen_branch_index = 0
+        if self.chosen_branch is not None:
+            chosen_branch_index = self.branches.index(self.chosen_branch)
+
+        # rearrange priority for branches
+        priority_sequence = []
+        if chosen_branch_index != 0:
+            priority_sequence.append(chosen_branch_index)
+        j = 0
+        while j < len(self.branches):
+            if j not in priority_sequence:
+                priority_sequence.append(j)
+            j += 1
+
+        i = 0
+        while i < len(priority_sequence):
+            branch = self.branches[priority_sequence[i]]
+            if isinstance(branch, TargetDefinition):
+                available_targets.append(branch)
+                # if available_targets[-1].is_optional():
+                i += 1
+                continue
+            elif isinstance(branch, ChoiceDefinition):
+                branch.get_available_targets(available_targets)
+                if chosen_branch_index == priority_sequence[i]:
+                    if available_targets[-1].is_optional():
+                        i += 1
+                        continue
+                    if branch.is_optional() and branch.chosen_branch is None:
+                        i += 1
+                        continue
+                else:
+                    i += 1
+                    continue
+            elif isinstance(branch, SequenceDefinition):
+                branch.get_available_targets(available_targets)
+                if chosen_branch_index == priority_sequence[i]:
+                    if available_targets[-1].is_optional():
+                        i += 1
+                        continue
+                    if branch.is_optional() and branch.chosen_branch is None:
+                        i += 1
+                        continue
+                else:
+                    i += 1
+                    continue
+            break
+        return available_targets
+        # if available_targets is None:
+        #     available_targets = []
+
+        # if not self.is_optional() and self.is_finished():
+        #     return available_targets
+
+        # if self.chosen_branch is not None:
+        #     if isinstance(self.chosen_branch, TargetDefinition):
+        #         available_targets.append(self.chosen_branch)
+        #     elif isinstance(self.chosen_branch, ChoiceDefinition):
+        #         self.chosen_branch.get_available_targets(available_targets)
+        #     elif isinstance(self.chosen_branch, SequenceDefinition):
+        #         self.chosen_branch.get_available_targets(available_targets)
+        #     return available_targets
+
+        # i = 0
+        # while i < len(self.branches):
+        #     branch = self.branches[i]
+        #     if isinstance(branch, TargetDefinition):
+        #         available_targets.append(branch)
+        #         i += 1
+        #     elif isinstance(branch, ChoiceDefinition):
+        #         branch.get_available_targets(available_targets)
+        #         i += 1
+        #     elif isinstance(branch, SequenceDefinition):
+        #         branch.get_available_targets(available_targets)
+        #         i += 1
+        # return available_targets
+
+    def set_chosen_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
+        if self.chosen_branch is not None and self.chosen_branch != child_branch:
+            if self.chosen_branch.is_optional() and child_branch.is_finished():
+                self.count += 1
+                self.chosen_branch = child_branch
+        if not child_branch.is_optional() and child_branch.is_finished():
+            self.count += 1
+            self.chosen_branch = None
+        else:
+            self.chosen_branch = child_branch
+        if self.parent is not None:
+            self.parent.set_chosen_branch(self)
+
+    def resolve_optional_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
+        if child_branch.is_optional() or child_branch.is_finished():
+            self.chosen_branch = None
+            self.count += 1
+        if self.parent is not None:
+            self.parent.resolve_optional_branch(self)
 
 
 class SequenceDefinition:
@@ -310,83 +425,134 @@ class SequenceDefinition:
         self,
         representation: str,
         modifier: ModifierDefinition,
-        parent: TreeDefinitionValidator | SequenceDefinition | ChoiceDefinition,
+        parent: None | SequenceDefinition | ChoiceDefinition = None,
     ) -> None:
         self.__representation = representation
         self.parent = parent
         self.modifier = modifier
         self.count = 0
+        self.chosen_branch: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
         self.branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
+
+    def __repr__(self) -> str:
+        return self.__representation
+
+    def get_last_unresolved_branch(self) -> None | SequenceDefinition | ChoiceDefinition | TargetDefinition:
+        if self.chosen_branch is None:
+            return None
+        traverse_node = self.chosen_branch
+        result_node: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
+        while traverse_node is not None:
+            if isinstance(traverse_node, TargetDefinition):
+                result_node = traverse_node
+                break
+            if isinstance(traverse_node, SequenceDefinition):
+                result_node = traverse_node
+                traverse_node = traverse_node.chosen_branch
+            if isinstance(traverse_node, ChoiceDefinition):
+                result_node = traverse_node
+                traverse_node = traverse_node.chosen_branch
+        return result_node
 
     def is_optional(self) -> bool:
         return self.modifier.is_optional(self.count)
 
-    def is_fulfilled(self) -> bool:
-        return self.modifier.is_fulfilled(self.count)
+    def is_finished(self) -> bool:
+        if self.chosen_branch is not None:
+            return False
+        for branch in self.branches:
+            if branch.count > 0:
+                return True
+        return False
+        # return self.modifier.is_finished(self.count)
 
     def get_available_branches(self) -> list[SequenceDefinition | ChoiceDefinition | TargetDefinition]:
         available_branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
-        for branch in self.branches:
-            if branch.is_optional():
-                available_branches.append(branch)
+        i = 0
+
+        if self.chosen_branch is not None:
+            i = self.branches.index(self.chosen_branch)
+
+        while i < len(self.branches):
+            if self.branches[i].is_optional():
+                available_branches.append(self.branches[i])
+                i += 1
                 continue
-            if branch.is_fulfilled():
+            if self.branches[i].is_finished():
                 available_branches = []
+                i += 1
                 continue
             else:
-                available_branches.append(branch)
+                available_branches.append(self.branches[i])
                 break
-        # if len(available_branches) > 0 and not available_branches[-1].is_optional():
-        #     self.register_unfulfilled_sequence()
+
         return available_branches
 
-    # def is_last_branch_optional(self) -> bool:
-    #     available_branches = self.get_available_branches()
-    #     if len(available_branches) == 0:
-    #         return False
-    #     return available_branches[-1].is_optional()
+    def get_available_targets(
+        self,
+        available_targets: list[TargetDefinition] | None = None,
+    ) -> list[TargetDefinition]:
+        if available_targets is None:
+            available_targets = []
 
-    def register_unfulfilled_sequence(self) -> None:
-        tree = self.get_tree()
-        if self not in tree.unfulfilled_sequences:
-            tree.unfulfilled_sequences.append(self)
+        if not self.is_optional() and self.is_finished():
+            return available_targets
 
-    def unregister_unfulfilled_sequence(self) -> None:
-        tree = self.get_tree()
-        if self in tree.unfulfilled_sequences:
-            tree.unfulfilled_sequences.remove(self)
+        i = 0
+        if self.chosen_branch is not None:
+            i = self.branches.index(self.chosen_branch)
 
-    def get_tree(self) -> TreeDefinitionValidator:
-        tree = self.parent
-        while not isinstance(tree, TreeDefinitionValidator):
-            tree = tree.parent
-        return tree
+        while i < len(self.branches):
+            branch = self.branches[i]
+            if isinstance(branch, TargetDefinition):
+                available_targets.append(branch)
+                if available_targets[-1].is_optional():
+                    i += 1
+                    continue
+            elif isinstance(branch, ChoiceDefinition):
+                branch.get_available_targets(available_targets)
+                if available_targets[-1].is_optional():
+                    i += 1
+                    continue
+                if branch.is_optional() and branch.chosen_branch is None:
+                    i += 1
+                    continue
+            elif isinstance(branch, SequenceDefinition):
+                branch.get_available_targets(available_targets)
+                if available_targets[-1].is_optional():
+                    i += 1
+                    continue
+                if branch.is_optional() and branch.chosen_branch is None:
+                    i += 1
+                    continue
+            break
+        return available_targets
 
-    def are_all_branches_fulfilled(self) -> bool:
-        for branch in self.branches:
-            if not branch.is_fulfilled():
-                return False
-        return True
+    def set_chosen_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
+        if not child_branch.is_optional():
+            index = self.branches.index(child_branch)
+            if index + 1 < len(self.branches):
+                self.chosen_branch = self.branches[index + 1]
+            else:
+                self.chosen_branch = None
+                self.count += 1
+        else:
+            self.chosen_branch = child_branch
+        if self.parent is not None:
+            self.parent.set_chosen_branch(self)
 
-    def register_match(self) -> None:
-        if not self.are_all_branches_fulfilled():
-            self.register_unfulfilled_sequence()
-            return
-
-        available_branches = self.get_available_branches()
-        if len(available_branches) > 0 and available_branches[-1].is_optional():
-            self.unregister_unfulfilled_sequence()
-        if len(available_branches) == 0:
-            self.unregister_unfulfilled_sequence()
-            self.count += 1
-        # if not self.is_fulfilled():
-        #     return
-        if isinstance(self.parent, TreeDefinitionValidator):
-            return
-        self.parent.register_match()
-
-    def __repr__(self) -> str:
-        return self.__representation
+    def resolve_optional_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
+        if child_branch.is_optional() or child_branch.is_finished():
+            index = self.branches.index(child_branch)
+            if index + 1 < len(self.branches):
+                self.chosen_branch = self.branches[index + 1]
+            else:
+                self.chosen_branch = None
+                self.count += 1
+        else:
+            self.chosen_branch = None
+        if self.parent is not None:
+            self.parent.resolve_optional_branch(self)
 
 
 class TargetDefinition:
@@ -395,7 +561,7 @@ class TargetDefinition:
         representation: str,
         modifier: ModifierDefinition,
         name: Token,
-        parent: TreeDefinitionValidator | SequenceDefinition | ChoiceDefinition,
+        parent: None | SequenceDefinition | ChoiceDefinition = None,
     ) -> None:
         self.__representation = representation
         self.parent = parent
@@ -403,37 +569,42 @@ class TargetDefinition:
         self.count = 0
         self.name = name
 
+    def __repr__(self) -> str:
+        return self.__representation
+
     def is_optional(self) -> bool:
         return self.modifier.is_optional(self.count)
 
-    def is_fulfilled(self) -> bool:
-        return self.modifier.is_fulfilled(self.count)
+    def is_finished(self) -> bool:
+        return self.modifier.is_finished(self.count)
+
+    def resolve_optional_target(self) -> None:
+        if self.parent is None:
+            return
+        self.parent.resolve_optional_branch(self)
 
     def register_match(self) -> None:
         self.count += 1
-        if not self.is_fulfilled():
+        if self.parent is None:
             return
-        if isinstance(self.parent, TreeDefinitionValidator):
-            return
-        self.parent.register_match()
-
-    def __repr__(self) -> str:
-        return self.__representation
+        self.parent.set_chosen_branch(self)
 
 
 class TreeDefinitionValidator:
     def __init__(self, edd: ElementDefinitionsDefined) -> None:
         self.__representation = str(f"{edd!r}")
         self.root: None | ChoiceDefinition | SequenceDefinition | TargetDefinition = None
-        self.unfulfilled_sequences: list[SequenceDefinition] = []
         self.build_definition_tree(edd)
+
+    def __repr__(self) -> str:
+        return self.__representation
 
     def build_definition_tree(
         self, edd: ElementDefinitionsDefined, parent: None | ChoiceDefinition | SequenceDefinition = None
     ) -> None:
         if edd.order == ElementDefinitionsOrder.SINGLE_ELEMENT and edd.target is not None:
             if parent is None:
-                target = TargetDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), edd.target, self)
+                target = TargetDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), edd.target)
                 self.root = target
             else:
                 target = TargetDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), edd.target, parent)
@@ -442,7 +613,7 @@ class TreeDefinitionValidator:
 
         elif edd.order == ElementDefinitionsOrder.CHOICE:
             if parent is None:
-                choice = ChoiceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), self)
+                choice = ChoiceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier))
                 self.root = choice
             else:
                 choice = ChoiceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), parent)
@@ -450,9 +621,10 @@ class TreeDefinitionValidator:
             for child_def in edd.child_definitions:
                 self.build_definition_tree(child_def, choice)
             return
+
         elif edd.order == ElementDefinitionsOrder.SEQUENCE:
             if parent is None:
-                sequence = SequenceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), self)
+                sequence = SequenceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier))
                 self.root = sequence
             else:
                 sequence = SequenceDefinition(f"{edd!r}", ModifierDefinition(edd.modifier), parent)
@@ -460,100 +632,44 @@ class TreeDefinitionValidator:
             for child_def in edd.child_definitions:
                 self.build_definition_tree(child_def, sequence)
 
-    def __repr__(self) -> str:
-        return self.__representation
-
-    # def get_available_targets(self) -> list[TargetDefinition]:
-    #     available_targets: list[TargetDefinition] = []
-
-    #     if len(self.unfulfilled_sequences) > 0:
-    #         available_targets = self.search_targets(available_targets, self.unfulfilled_sequences[-1])
-    #     else:
-    #         available_targets = self.search_targets(available_targets)
-    #     return available_targets
-
     def get_available_targets(
         self,
-        available_targets: list[TargetDefinition] | None = None,
-        node: ChoiceDefinition | SequenceDefinition | TargetDefinition | None = None,
     ) -> list[TargetDefinition]:
-        if available_targets is None:
-            available_targets = []
-
-        if node is None:
-            if len(self.unfulfilled_sequences) > 0:
-                node = self.unfulfilled_sequences[-1]
-            else:
-                node = self.root
-
-        if isinstance(node, TargetDefinition):
-            available_targets.append(node)
-        elif isinstance(node, ChoiceDefinition):
-            available_branches = node.get_available_branches()
-            for branch in available_branches:
-                self.get_available_targets(available_targets, branch)
-        elif isinstance(node, SequenceDefinition):
-            available_branches = node.get_available_branches()
-            for branch in available_branches:
-                self.get_available_targets(available_targets, branch)
+        available_targets: list[TargetDefinition] = []
+        if isinstance(self.root, TargetDefinition):
+            if self.root.is_optional() or not self.root.is_finished():
+                available_targets.append(self.root)
+        elif isinstance(self.root, ChoiceDefinition):
+            available_targets = self.root.get_available_targets()
+        elif isinstance(self.root, SequenceDefinition):
+            available_targets = self.root.get_available_targets()
         return available_targets
 
-    def match_element(self, element: Token | str, available_targets: list[TargetDefinition]):
-        match_target: None | TargetDefinition = None
-        for target in available_targets:
-            if element == target.name:
-                match_target = target
+    def match_element(
+        self,
+        element: Token | str,
+        cached_available_targets: list[TargetDefinition],
+    ) -> bool:
+        optional_targets: list[TargetDefinition] = []
+        target: TargetDefinition | None = None
+
+        i = 0
+        while i < len(cached_available_targets):
+            if element == cached_available_targets[i].name:
+                target = cached_available_targets[i]
                 break
-        if match_target is None:
-            return
-        match_target.register_match()
+            optional_targets.append(cached_available_targets[i])
+            i += 1
 
-    # def get_available_branches_in_sequence(self) -> list[ElementDefinitionsDefinedValidator]:
-    #     collected_branches: list[ElementDefinitionsDefinedValidator] = []
-    #     for branch in self.branches:
-    #         if branch.is_optional():
-    #             collected_branches.append(branch)
-    #             continue
-    #         if not branch.can_receive():
-    #             continue
-    #         collected_branches.append(branch)
-    #         break
-    #         # if branch.can_receive():
-    #         #     collected_branches.append(branch)
+        if target is None:
+            return False
 
-    #     return collected_branches
+        for optional_target in optional_targets:
+            if optional_target.is_optional():
+                optional_target.resolve_optional_target()
 
-    # def get_available_branches_in_choice(self) -> list[ElementDefinitionsDefinedValidator]:
-    #     collected_branches: list[ElementDefinitionsDefinedValidator] = []
-    #     for branch in self.branches:
-    #         if branch.can_receive():
-    #             collected_branches.append(branch)
-    #     return collected_branches
-
-    # def get_all_targets(
-    #     self,
-    #     targets: None | list[ElementDefinitionsDefinedValidator] = None,
-    # ) -> list[ElementDefinitionsDefinedValidator]:
-    #     if targets is None:
-    #         targets = []
-
-    #     if self.target is not None and self.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
-    #         if self.can_receive():
-    #             targets.append(self)
-    #         return targets
-
-    #     available_branches = []
-    #     if self.order == ElementDefinitionsOrder.SEQUENCE:
-    #         available_branches = self.get_available_branches_in_sequence()
-    #     elif self.order == ElementDefinitionsOrder.CHOICE:
-    #         available_branches = self.get_available_branches_in_choice()
-    #     else:
-    #         raise ValueError("Order not recognized.")
-
-    #     for branch in available_branches:
-    #         branch.get_all_targets(targets)
-
-    #     return targets
+        target.register_match()
+        return True
 
 
 class Dtd:
@@ -652,7 +768,7 @@ class Dtd:
         if isinstance(element_definition, ElementDefinitionsEmpty):
             return False
         if isinstance(element_definition, ElementDefinitionsDefined):
-            # edd_tree = TreeDefinitionValidator(element_definition)
+            # tree = TreeDefinitionValidator(element_definition)
             # available_targets = edd_tree.get_available_targets()
             # if self.is_non_deterministic_content_model(available_targets):
             #     # generate error
