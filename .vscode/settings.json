@@ -10,7 +10,7 @@
     "editor.suggestSelection": "first",
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.stickyScroll.enabled": false,
+    "editor.stickyScroll.enabled": true,
     "editor.bracketPairColorization.enabled": false,
     "editor.cursorSmoothCaretAnimation": "on",
     "editor.suggest.preview": true,

@@ -112,14 +112,14 @@ class ElementDefinitionsDefined:
         return self.__representation
 
     def get_modifier(self) -> int:
-        # 0: ONLY_ONE_TIME
-        # 1: ZERO_OR_ONE_TIMES
-        # 2: ONE_OR_MORE_TIMES
-        # 3: ZERO_OR_MORE_TIMES
-        if self.tokens[-1] == ("?"):
+        # 0: ONLY_ONE
+        # 1: ZERO_OR_ONE
+        # 2: ONE_OR_MORE
+        # 3: ZERO_OR_MORE
+        if self.tokens[-1] == ("+"):
             self.tokens.pop(-1)
             return 1
-        if self.tokens[-1] == ("+"):
+        if self.tokens[-1] == ("?"):
             self.tokens.pop(-1)
             return 2
         if self.tokens[-1] == ("*"):
@@ -195,19 +195,19 @@ class ModifierDefinition:
         self.modifier = modifier
 
     def __repr__(self) -> str:
-        # 0: ONLY_ONE_TIME
-        # 1: ZERO_OR_ONE_TIMES
-        # 2: ONE_OR_MORE_TIMES
-        # 3: ZERO_OR_MORE_TIMES
+        # 0: ONLY_ONE
+        # 1: ZERO_OR_ONE
+        # 2: ONE_OR_MORE
+        # 3: ZERO_OR_MORE
         match self.modifier:
             case 0:
-                return "ONLY_ONE_TIME"
+                return "ONLY_ONE"
             case 1:
-                return "ZERO_OR_ONE_TIME"
+                return "ZERO_OR_ONE"
             case 2:
-                return "ONE_OR_MORE_TIMES"
+                return "ONE_OR_MORE"
             case 3:
-                return "ZERO_OR_MORE_TIMES"
+                return "ZERO_OR_MORE"
             case _:
                 return "UNKNOWN"
 
@@ -216,7 +216,7 @@ class ModifierDefinition:
             case 0:
                 return False
             case 1:
-                if count == 0:
+                if count < 1:
                     return True
                 return False
             case 2:
@@ -285,32 +285,38 @@ class ChoiceDefinition:
         return result_node
 
     def is_optional(self) -> bool:
-        return self.modifier.is_optional(self.count)
+        if self.chosen_branch is not None and not self.chosen_branch.is_optional():
+            return False
+        if self.modifier.is_optional(self.count):
+            pass
+        else:
+            return False
+        return True
 
     def is_finished(self) -> bool:
         if self.chosen_branch is not None:
             return False
-        for branch in self.branches:
-            if branch.count > 0:
-                return True
-        return False
-        # return self.modifier.is_finished(self.count)
+        return self.modifier.is_finished(self.count)
 
-    def get_available_branches(self) -> list[SequenceDefinition | ChoiceDefinition | TargetDefinition]:
-        available_branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
-        i = 0
+    def is_count_match(self) -> bool:
+        count = self.count
         if self.chosen_branch is not None:
-            i = self.branches.index(self.chosen_branch)
+            count += 1
+        return self.modifier.is_finished(count)
 
+    def get_priority_sequence(self) -> list[int]:
+        chosen_branch_index = 0
+        if self.chosen_branch is not None:
+            chosen_branch_index = self.branches.index(self.chosen_branch)
+        priority_sequence = []
+        if chosen_branch_index != 0:
+            priority_sequence.append(chosen_branch_index)
+        i = 0
         while i < len(self.branches):
-            if self.branches[i].is_optional():
-                available_branches.append(self.branches[i])
-                i += 1
-            elif not self.branches[i].is_finished():
-                available_branches.append(self.branches[i])
-                i += 1
-
-        return available_branches
+            if i not in priority_sequence:
+                priority_sequence.append(i)
+            i += 1
+        return priority_sequence
 
     def get_available_targets(
         self,
@@ -322,100 +328,56 @@ class ChoiceDefinition:
         if not self.is_optional() and self.is_finished():
             return available_targets
 
-        chosen_branch_index = 0
-        if self.chosen_branch is not None:
-            chosen_branch_index = self.branches.index(self.chosen_branch)
-
         # rearrange priority for branches
-        priority_sequence = []
-        if chosen_branch_index != 0:
-            priority_sequence.append(chosen_branch_index)
-        j = 0
-        while j < len(self.branches):
-            if j not in priority_sequence:
-                priority_sequence.append(j)
-            j += 1
+        priority_sequence = self.get_priority_sequence()
 
         i = 0
         while i < len(priority_sequence):
             branch = self.branches[priority_sequence[i]]
             if isinstance(branch, TargetDefinition):
                 available_targets.append(branch)
-                # if available_targets[-1].is_optional():
+            else:
+                branch.get_available_targets(available_targets)
+            # if self.is_optional():
+            #     i += 1
+            #     continue
+            if self.chosen_branch is not None and self.chosen_branch.is_optional():
+                if self.is_optional():
+                    i += 1
+                    continue
+                elif self.is_count_match():
+                    break
+                else:
+                    i += 1
+                    continue
+            if self.chosen_branch is None:
                 i += 1
                 continue
-            elif isinstance(branch, ChoiceDefinition):
-                branch.get_available_targets(available_targets)
-                if chosen_branch_index == priority_sequence[i]:
-                    if available_targets[-1].is_optional():
-                        i += 1
-                        continue
-                    if branch.is_optional() and branch.chosen_branch is None:
-                        i += 1
-                        continue
-                else:
-                    i += 1
-                    continue
-            elif isinstance(branch, SequenceDefinition):
-                branch.get_available_targets(available_targets)
-                if chosen_branch_index == priority_sequence[i]:
-                    if available_targets[-1].is_optional():
-                        i += 1
-                        continue
-                    if branch.is_optional() and branch.chosen_branch is None:
-                        i += 1
-                        continue
-                else:
-                    i += 1
-                    continue
-            break
+            else:
+                break
         return available_targets
-        # if available_targets is None:
-        #     available_targets = []
 
-        # if not self.is_optional() and self.is_finished():
-        #     return available_targets
-
-        # if self.chosen_branch is not None:
-        #     if isinstance(self.chosen_branch, TargetDefinition):
-        #         available_targets.append(self.chosen_branch)
-        #     elif isinstance(self.chosen_branch, ChoiceDefinition):
-        #         self.chosen_branch.get_available_targets(available_targets)
-        #     elif isinstance(self.chosen_branch, SequenceDefinition):
-        #         self.chosen_branch.get_available_targets(available_targets)
-        #     return available_targets
-
-        # i = 0
-        # while i < len(self.branches):
-        #     branch = self.branches[i]
-        #     if isinstance(branch, TargetDefinition):
-        #         available_targets.append(branch)
-        #         i += 1
-        #     elif isinstance(branch, ChoiceDefinition):
-        #         branch.get_available_targets(available_targets)
-        #         i += 1
-        #     elif isinstance(branch, SequenceDefinition):
-        #         branch.get_available_targets(available_targets)
-        #         i += 1
-        # return available_targets
+    def resolve_branch(self) -> None:
+        self.count += 1
+        self.chosen_branch = None
+        for branch in self.branches:
+            branch.count = 0
 
     def set_chosen_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
-        if self.chosen_branch is not None and self.chosen_branch != child_branch:
-            if self.chosen_branch.is_optional() and child_branch.is_finished():
-                self.count += 1
-                self.chosen_branch = child_branch
         if not child_branch.is_optional() and child_branch.is_finished():
             self.count += 1
             self.chosen_branch = None
+            for branch in self.branches:
+                branch.count = 0
         else:
             self.chosen_branch = child_branch
         if self.parent is not None:
             self.parent.set_chosen_branch(self)
 
     def resolve_optional_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
-        if child_branch.is_optional() or child_branch.is_finished():
-            self.chosen_branch = None
-            self.count += 1
+        if child_branch.is_optional() and self.is_finished():
+            # if child_branch.is_optional() and child_branch.is_finished():
+            self.resolve_branch()
         if self.parent is not None:
             self.parent.resolve_optional_branch(self)
 
@@ -455,38 +417,14 @@ class SequenceDefinition:
         return result_node
 
     def is_optional(self) -> bool:
+        if self.chosen_branch is not None and not self.chosen_branch.is_optional():
+            return False
         return self.modifier.is_optional(self.count)
 
     def is_finished(self) -> bool:
         if self.chosen_branch is not None:
             return False
-        for branch in self.branches:
-            if branch.count > 0:
-                return True
-        return False
-        # return self.modifier.is_finished(self.count)
-
-    def get_available_branches(self) -> list[SequenceDefinition | ChoiceDefinition | TargetDefinition]:
-        available_branches: list[SequenceDefinition | ChoiceDefinition | TargetDefinition] = []
-        i = 0
-
-        if self.chosen_branch is not None:
-            i = self.branches.index(self.chosen_branch)
-
-        while i < len(self.branches):
-            if self.branches[i].is_optional():
-                available_branches.append(self.branches[i])
-                i += 1
-                continue
-            if self.branches[i].is_finished():
-                available_branches = []
-                i += 1
-                continue
-            else:
-                available_branches.append(self.branches[i])
-                break
-
-        return available_branches
+        return self.modifier.is_finished(self.count)
 
     def get_available_targets(
         self,
@@ -506,49 +444,56 @@ class SequenceDefinition:
             branch = self.branches[i]
             if isinstance(branch, TargetDefinition):
                 available_targets.append(branch)
-                if available_targets[-1].is_optional():
-                    i += 1
-                    continue
-            elif isinstance(branch, ChoiceDefinition):
+            else:
                 branch.get_available_targets(available_targets)
-                if available_targets[-1].is_optional():
-                    i += 1
-                    continue
-                if branch.is_optional() and branch.chosen_branch is None:
-                    i += 1
-                    continue
-            elif isinstance(branch, SequenceDefinition):
-                branch.get_available_targets(available_targets)
-                if available_targets[-1].is_optional():
-                    i += 1
-                    continue
-                if branch.is_optional() and branch.chosen_branch is None:
-                    i += 1
-                    continue
-            break
+            if branch.is_optional():
+                i += 1
+                continue
+            elif available_targets[-1].is_optional_and_parent_finished():
+                i += 1
+                continue
+            elif available_targets[-1].is_optional_inherited(self):
+                i += 1
+                continue
+            else:
+                break
         return available_targets
 
+    def is_there_next_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> bool:
+        index = self.branches.index(child_branch)
+        if index + 1 < len(self.branches):
+            return True
+        return False
+
+    def set_next_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
+        index = self.branches.index(child_branch)
+        self.chosen_branch = self.branches[index + 1]
+
+    def resolve_branch(self) -> None:
+        self.chosen_branch = None
+        self.count += 1
+        for branch in self.branches:
+            branch.count = 0
+
     def set_chosen_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
-        if not child_branch.is_optional():
-            index = self.branches.index(child_branch)
-            if index + 1 < len(self.branches):
-                self.chosen_branch = self.branches[index + 1]
+        if not child_branch.is_optional() and child_branch.is_finished():
+            # if not child_branch.is_optional() and child_branch.is_finished():
+            if self.is_there_next_branch(child_branch):
+                self.set_next_branch(child_branch)
             else:
-                self.chosen_branch = None
-                self.count += 1
+                self.resolve_branch()
         else:
             self.chosen_branch = child_branch
         if self.parent is not None:
             self.parent.set_chosen_branch(self)
 
     def resolve_optional_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
-        if child_branch.is_optional() or child_branch.is_finished():
-            index = self.branches.index(child_branch)
-            if index + 1 < len(self.branches):
-                self.chosen_branch = self.branches[index + 1]
+        if child_branch.is_optional() and child_branch.is_finished():
+            # if child_branch.is_optional() or child_branch.is_finished():
+            if self.is_there_next_branch(child_branch):
+                self.set_next_branch(child_branch)
             else:
-                self.chosen_branch = None
-                self.count += 1
+                self.resolve_branch()
         else:
             self.chosen_branch = None
         if self.parent is not None:
@@ -572,8 +517,44 @@ class TargetDefinition:
     def __repr__(self) -> str:
         return self.__representation
 
+    def is_optional_inherited(self, parent: ChoiceDefinition | SequenceDefinition) -> bool:
+        # parent to check should not be direct parent
+        if self.parent == parent:
+            return False
+        if isinstance(self.parent, SequenceDefinition):
+            branch_index = self.parent.branches.index(self)
+            if branch_index == 0 and self.parent.is_optional():
+                return True
+        if isinstance(self.parent, ChoiceDefinition):
+            if self.parent.is_optional():
+                return True
+        return False
+
+    def is_optional_and_parent_finished(self) -> bool:
+        if not self.is_optional():
+            return False
+        if isinstance(self.parent, SequenceDefinition):
+            if self == self.parent.branches[-1]:
+                return True
+            return False
+        if isinstance(self.parent, ChoiceDefinition):
+            if self.parent.is_count_match():
+                return True
+            return False
+        return False
+
     def is_optional(self) -> bool:
         return self.modifier.is_optional(self.count)
+        # if not self.modifier.is_optional(self.count):
+        #     if isinstance(self.parent, SequenceDefinition):
+        #         branch_index = self.parent.branches.index(self)
+        #         if branch_index == 0 and self.parent.is_optional():
+        #             return True
+        #     if isinstance(self.parent, ChoiceDefinition):
+        #         if self.parent.is_optional():
+        #             return True
+        #     return False
+        # return True
 
     def is_finished(self) -> bool:
         return self.modifier.is_finished(self.count)
@@ -639,9 +620,7 @@ class TreeDefinitionValidator:
         if isinstance(self.root, TargetDefinition):
             if self.root.is_optional() or not self.root.is_finished():
                 available_targets.append(self.root)
-        elif isinstance(self.root, ChoiceDefinition):
-            available_targets = self.root.get_available_targets()
-        elif isinstance(self.root, SequenceDefinition):
+        elif isinstance(self.root, ChoiceDefinition | SequenceDefinition):
             available_targets = self.root.get_available_targets()
         return available_targets
 
@@ -657,15 +636,16 @@ class TreeDefinitionValidator:
         while i < len(cached_available_targets):
             if element == cached_available_targets[i].name:
                 target = cached_available_targets[i]
-                break
-            optional_targets.append(cached_available_targets[i])
+            elif cached_available_targets[i].is_optional():
+                optional_targets.append(cached_available_targets[i])
             i += 1
+            continue
 
         if target is None:
             return False
 
-        for optional_target in optional_targets:
-            if optional_target.is_optional():
+        if len(optional_targets) > 0:
+            for optional_target in optional_targets:
                 optional_target.resolve_optional_target()
 
         target.register_match()
