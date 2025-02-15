@@ -1,6 +1,6 @@
 <!DOCTYPE root [
     <!-- <!ELEMENT root ((a | (b, (c | (d, e*)))), f)> -->
-    <!ELEMENT root ((a | (b, c)* | d),e)>
+    <!ELEMENT root (a, b*)*>
     <!ELEMENT a EMPTY>
     <!ELEMENT b EMPTY>
     <!ELEMENT c EMPTY>
@@ -9,9 +9,9 @@
 ]>
 
 <root>
-    <b/>
+    <a/>
     <c/>
-    <b/>
-    <c/>
-    <e/>
+    <a/>
+    <a/>
+    <a/>
 </root>
