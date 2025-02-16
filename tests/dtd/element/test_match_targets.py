@@ -378,9 +378,26 @@ def test_plasmafig()-> None:
     assert available_targets[1].name == "c"
     tree.match_element("a", available_targets)
     available_targets = tree.get_available_targets()
-    assert len(available_targets) == 2
+    assert len(available_targets) == 3
     assert available_targets[0].name == "b"
-    assert available_targets[1].name == "c"
+    assert available_targets[1].name == "a"
+    assert available_targets[2].name == "c"
+    tree.match_element("b", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 3
+    assert available_targets[0].name == "b"
+    assert available_targets[1].name == "a"
+    assert available_targets[2].name == "c"
+    tree.match_element("a", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 3
+    assert available_targets[0].name == "b"
+    assert available_targets[1].name == "a"
+    assert available_targets[2].name == "c"
+    tree.match_element("c", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "d"
 
 
 
@@ -388,7 +405,15 @@ def test_frostedmarble()-> None:
     # Repeating choices inside nested groups
     tree = create_def_tree("((a | (b, c)+)?, d*)")
     available_targets = tree.get_available_targets()
-    assert len(available_targets) == 0
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "a"
+    assert available_targets[1].name == "b"
+    tree.match_element("b", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "c"
+
+
 
 def test_quirkynimbus()-> None:
     # Deeply nested optional and required elements

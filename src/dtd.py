@@ -405,7 +405,7 @@ class SequenceDefinition:
         return result_node
 
     def is_optional(self) -> bool:
-        if self.chosen_branch is not None:
+        if self.chosen_branch is not None and not self.chosen_branch.is_optional():
             return False
         return self.modifier.is_optional(self.count)
 
@@ -422,6 +422,27 @@ class SequenceDefinition:
             return False
         return self.modifier.is_finished(self.count)
 
+    def get_priority_sequence(self) -> list[int]:
+        # if self.chosen_branch is not None:
+        #     i = self.branches.index(self.chosen_branch)
+
+        i = 0
+        chosen_branch_index = 0
+        if self.chosen_branch is not None:
+            i = self.branches.index(self.chosen_branch)
+            chosen_branch_index = i
+
+        priority_sequence = []
+        while i < len(self.branches):
+            priority_sequence.append(i)
+            i += 1
+        if self.is_optional():
+            i = 0
+            while i < chosen_branch_index:
+                priority_sequence.append(i)
+                i += 1
+        return priority_sequence
+
     def get_available_targets(
         self,
         available_targets: list[TargetDefinition] | None = None,
@@ -432,12 +453,12 @@ class SequenceDefinition:
         if not self.is_optional() and self.is_finished():
             return available_targets
 
-        i = 0
-        if self.chosen_branch is not None:
-            i = self.branches.index(self.chosen_branch)
+        # rearrange priority for branches
+        priority_sequence = self.get_priority_sequence()
 
-        while i < len(self.branches):
-            branch = self.branches[i]
+        i = 0
+        while i < len(priority_sequence):
+            branch = self.branches[priority_sequence[i]]
             if isinstance(branch, TargetDefinition):
                 available_targets.append(branch)
             else:
