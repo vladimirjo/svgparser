@@ -298,7 +298,6 @@ def test_sizzlefable()-> None:
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
 
-
 def test_arcanetide()-> None:
     # Combining multiple choice and sequence rules
     tree = create_def_tree("(a, ((b, c*) | d)+, e?)")
@@ -325,7 +324,6 @@ def test_arcanetide()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
-
 
 def test_velcrolark_ver1()-> None:
     # Nested optional sequences
@@ -399,8 +397,6 @@ def test_plasmafig()-> None:
     assert len(available_targets) == 1
     assert available_targets[0].name == "d"
 
-
-
 def test_frostedmarble()-> None:
     # Repeating choices inside nested groups
     tree = create_def_tree("((a | (b, c)+)?, d*)")
@@ -412,12 +408,45 @@ def test_frostedmarble()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-
-
+    tree.match_element("c", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 3
+    assert available_targets[0].name == "a"
+    assert available_targets[1].name == "b"
+    assert available_targets[2].name == "d"
+    tree.match_element("a", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 3
+    assert available_targets[0].name == "a"
+    assert available_targets[1].name == "b"
+    assert available_targets[2].name == "d"
+    tree.match_element("d", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "d"
 
 def test_quirkynimbus()-> None:
     # Deeply nested optional and required elements
     tree = create_def_tree("(((a, b?) | c*), d, (e | f+))")
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "a"
+    assert available_targets[1].name == "c"
+    tree.match_element("a", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "b"
+    tree.match_element("b", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "b"
+    assert available_targets[1].name == "d"
+    tree.match_element("d", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "e"
+    assert available_targets[1].name == "f"
+    tree.match_element("f", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -425,10 +454,57 @@ def test_zebraquirk()-> None:
     # Complex nesting with required sequences
     tree = create_def_tree("((a, (b | (c, d?))), e*, f)")
     available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "a"
+    tree.match_element("a", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "b"
+    assert available_targets[1].name == "c"
+    tree.match_element("c", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "d"
+    tree.match_element("d", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 3
+    assert available_targets[0].name == "d"
+    assert available_targets[1].name == "e"
+    assert available_targets[2].name == "f"
+    tree.match_element("e", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "e"
+    assert available_targets[1].name == "f"
+    tree.match_element("f", available_targets)
+    available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
 def test_orbitdoodle()-> None:
     # Grouping required elements with optional substructures
-    tree = create_def_tree("((a, (b?, (c, d+)) | e), f)")
+    tree = create_def_tree("((a, (b?, (c, d+)) , e), f)")
     available_targets = tree.get_available_targets()
-    assert len(available_targets) == 0
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "a"
+    tree.match_element("a", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "b"
+    tree.match_element("b", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "b"
+    assert available_targets[1].name == "c"
+    tree.match_element("c", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 2
+    assert available_targets[0].name == "d"
+    assert available_targets[1].name == "e"
+    tree.match_element("d", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "e"
+    tree.match_element("e", available_targets)
+    available_targets = tree.get_available_targets()
+    assert len(available_targets) == 1
+    assert available_targets[0].name == "f"

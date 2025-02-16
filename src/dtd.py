@@ -267,28 +267,28 @@ class ChoiceDefinition:
     def __repr__(self) -> str:
         return self.__representation
 
-    def get_last_unresolved_branch(self) -> None | SequenceDefinition | ChoiceDefinition | TargetDefinition:
-        if self.chosen_branch is None:
-            return None
-        traverse_node = self.chosen_branch
-        result_node: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
-        while traverse_node is not None:
-            if isinstance(traverse_node, TargetDefinition):
-                result_node = traverse_node
-                break
-            if isinstance(traverse_node, SequenceDefinition):
-                result_node = traverse_node
-                traverse_node = traverse_node.chosen_branch
-            if isinstance(traverse_node, ChoiceDefinition):
-                result_node = traverse_node
-                traverse_node = traverse_node.chosen_branch
-        return result_node
+    # def get_last_unresolved_branch(self) -> None | SequenceDefinition | ChoiceDefinition | TargetDefinition:
+    #     if self.chosen_branch is None:
+    #         return None
+    #     traverse_node = self.chosen_branch
+    #     result_node: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
+    #     while traverse_node is not None:
+    #         if isinstance(traverse_node, TargetDefinition):
+    #             result_node = traverse_node
+    #             break
+    #         if isinstance(traverse_node, SequenceDefinition):
+    #             result_node = traverse_node
+    #             traverse_node = traverse_node.chosen_branch
+    #         if isinstance(traverse_node, ChoiceDefinition):
+    #             result_node = traverse_node
+    #             traverse_node = traverse_node.chosen_branch
+    #     return result_node
 
     def is_optional(self) -> bool:
-        count = self.count
         if self.chosen_branch is not None:
-            count += 1
-        return self.modifier.is_optional(count)
+            return self.is_chosen_path_optional()
+        else:
+            return self.modifier.is_optional(self.count)
 
     def is_chosen_path_optional(self) -> bool:
         if self.chosen_branch is None:
@@ -296,7 +296,7 @@ class ChoiceDefinition:
         branch = self.chosen_branch
         while isinstance(branch, ChoiceDefinition | SequenceDefinition) and branch.chosen_branch is not None:
             branch = branch.chosen_branch
-        return branch.is_optional()
+        return branch.modifier.is_optional(branch.count)
 
     def is_finished(self) -> bool:
         if self.chosen_branch is not None:
@@ -324,7 +324,7 @@ class ChoiceDefinition:
         if available_targets is None:
             available_targets = []
 
-        if not self.is_optional() and self.is_finished():
+        if not self.modifier.is_optional(self.count) and self.is_finished():
             return available_targets
 
         # rearrange priority for branches
@@ -337,7 +337,11 @@ class ChoiceDefinition:
                 available_targets.append(branch)
             else:
                 branch.get_available_targets(available_targets)
-            if self.is_chosen_path_optional() and self.is_optional():
+            if self.chosen_branch is not None:
+                if not self.modifier.is_optional(self.count + 1) and self.modifier.is_finished(self.count + 1):
+                    break
+                if branch == self.chosen_branch and not branch.is_optional():
+                    break
                 i += 1
                 continue
             if self.chosen_branch is None:
@@ -353,7 +357,7 @@ class ChoiceDefinition:
             branch.count = 0
 
     def set_chosen_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
-        if not child_branch.is_optional() and child_branch.is_finished():
+        if not child_branch.modifier.is_optional(child_branch.count) and child_branch.is_finished():
             self.count += 1
             self.chosen_branch = None
             for branch in self.branches:
@@ -387,27 +391,37 @@ class SequenceDefinition:
     def __repr__(self) -> str:
         return self.__representation
 
-    def get_last_unresolved_branch(self) -> None | SequenceDefinition | ChoiceDefinition | TargetDefinition:
-        if self.chosen_branch is None:
-            return None
-        traverse_node = self.chosen_branch
-        result_node: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
-        while traverse_node is not None:
-            if isinstance(traverse_node, TargetDefinition):
-                result_node = traverse_node
-                break
-            if isinstance(traverse_node, SequenceDefinition):
-                result_node = traverse_node
-                traverse_node = traverse_node.chosen_branch
-            if isinstance(traverse_node, ChoiceDefinition):
-                result_node = traverse_node
-                traverse_node = traverse_node.chosen_branch
-        return result_node
+    # def get_last_unresolved_branch(self) -> None | SequenceDefinition | ChoiceDefinition | TargetDefinition:
+    #     if self.chosen_branch is None:
+    #         return None
+    #     traverse_node = self.chosen_branch
+    #     result_node: None | SequenceDefinition | ChoiceDefinition | TargetDefinition = None
+    #     while traverse_node is not None:
+    #         if isinstance(traverse_node, TargetDefinition):
+    #             result_node = traverse_node
+    #             break
+    #         if isinstance(traverse_node, SequenceDefinition):
+    #             result_node = traverse_node
+    #             traverse_node = traverse_node.chosen_branch
+    #         if isinstance(traverse_node, ChoiceDefinition):
+    #             result_node = traverse_node
+    #             traverse_node = traverse_node.chosen_branch
+    #     return result_node
 
     def is_optional(self) -> bool:
-        if self.chosen_branch is not None and not self.chosen_branch.is_optional():
-            return False
-        return self.modifier.is_optional(self.count)
+        if self.chosen_branch is not None:
+            if self.is_chosen_path_optional():
+                i = self.branches.index(self.chosen_branch)
+                while i < len(self.branches):
+                    if not self.branches[i].is_optional():
+                        # if not self.branches[i].modifier.is_optional(self.branches[i].count):
+                        return False
+                    i += 1
+                return True
+            else:
+                return False
+        else:
+            return self.modifier.is_optional(self.count)
 
     def is_chosen_path_optional(self) -> bool:
         if self.chosen_branch is None:
@@ -415,7 +429,7 @@ class SequenceDefinition:
         branch = self.chosen_branch
         while isinstance(branch, ChoiceDefinition | SequenceDefinition) and branch.chosen_branch is not None:
             branch = branch.chosen_branch
-        return branch.is_optional()
+        return branch.modifier.is_optional(branch.count)
 
     def is_finished(self) -> bool:
         if self.chosen_branch is not None:
@@ -436,7 +450,7 @@ class SequenceDefinition:
         while i < len(self.branches):
             priority_sequence.append(i)
             i += 1
-        if self.is_optional():
+        if self.modifier.is_optional(self.count):
             i = 0
             while i < chosen_branch_index:
                 priority_sequence.append(i)
@@ -450,7 +464,7 @@ class SequenceDefinition:
         if available_targets is None:
             available_targets = []
 
-        if not self.is_optional() and self.is_finished():
+        if not self.modifier.is_optional(self.count) and self.is_finished():
             return available_targets
 
         # rearrange priority for branches
@@ -463,9 +477,9 @@ class SequenceDefinition:
                 available_targets.append(branch)
             else:
                 branch.get_available_targets(available_targets)
-            if isinstance(branch, ChoiceDefinition | SequenceDefinition) and branch.is_chosen_path_optional():
-                i += 1
-                continue
+            # if isinstance(branch, ChoiceDefinition | SequenceDefinition) and branch.is_chosen_path_optional():
+            #     i += 1
+            #     continue
             if branch.is_optional():
                 i += 1
                 continue
@@ -490,7 +504,7 @@ class SequenceDefinition:
             branch.count = 0
 
     def set_chosen_branch(self, child_branch: SequenceDefinition | ChoiceDefinition | TargetDefinition) -> None:
-        if not child_branch.is_optional() and child_branch.is_finished():
+        if not child_branch.modifier.is_optional(child_branch.count) and child_branch.is_finished():
             if self.is_there_next_branch(child_branch):
                 self.set_next_branch(child_branch)
             else:
