@@ -1,31 +1,5 @@
-from re import A
 from dtd import ChoiceDefinition, SequenceDefinition, TargetDefinition
 from tests.conftest import create_def_tree
-
-# def random_names() -> None:
-    # hollowcrescent
-    # snappyglyph
-    # pepperhorizon
-    # sapphirequirk
-    # bouncywaffle
-    # timberecho
-    # fizzycomet
-    # noodlemirage
-    # velvetorbit
-    # cosmictundra
-    # shadowflicker
-    # rustyparadox
-    # zigzagpebble
-    # crimsonnimbus
-    # jellyecho
-    # wobbletornado
-    # nebulacactus
-    # glimmerfable
-    # snappyvortex
-    # frothymonsoon
-    # quirkytadpole
-    # hollowquasar
-    # pass
 
 def test__nebulagazer() -> None:
     # Sequential group with repetition and choice
@@ -36,21 +10,21 @@ def test__nebulagazer() -> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "e"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "d"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -64,19 +38,19 @@ def test__tidalwhisper() -> None:
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "c"
     assert available_targets[2].name == "d"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
@@ -91,7 +65,7 @@ def test__velvetcactus() -> None:
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -105,11 +79,11 @@ def test__mysticraven() -> None:
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
@@ -124,15 +98,15 @@ def test__lunarpebble() -> None:
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
-    assert available_targets[0].name == "b"
-    assert available_targets[1].name == "a"
+    assert available_targets[0].name == "a"
+    assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
 
 def test__hollowcrescent_ver1() -> None:
@@ -143,7 +117,7 @@ def test__hollowcrescent_ver1() -> None:
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
@@ -156,11 +130,11 @@ def test__hollowcrescent_ver2() -> None:
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
@@ -175,21 +149,21 @@ def test__quarkmurmur() -> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "e"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "d"
-    tree.match_element("b",available_targets)
+    tree.match("b",available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c",available_targets)
+    tree.match("c",available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "d"
-    tree.match_element("d",available_targets)
+    tree.match("d",available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -202,12 +176,12 @@ def test__flimsytoast() -> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "c"
     assert available_targets[1].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "e"
@@ -221,22 +195,22 @@ def test_echopine()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "c"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "c"
     assert available_targets[2].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
-    tree.match_element("e", available_targets)
+    tree.match("e", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
@@ -248,11 +222,11 @@ def test_whiskermosaic_ver1()-> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "c"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
@@ -264,11 +238,11 @@ def test_whiskermosaic_ver2()-> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -279,21 +253,21 @@ def test_sizzlefable()-> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "c"
     assert available_targets[1].name == "d"
     assert available_targets[2].name == "e"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
-    tree.match_element("e", available_targets)
+    tree.match("e", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
@@ -304,23 +278,23 @@ def test_arcanetide()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "d"
     assert available_targets[2].name == "e"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "c"
     assert available_targets[1].name == "e"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "c"
     assert available_targets[1].name == "e"
-    tree.match_element("e", available_targets)
+    tree.match("e", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
@@ -331,18 +305,18 @@ def test_velcrolark_ver1()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "d"
     assert available_targets[1].name == "e"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -352,18 +326,18 @@ def test_velcrolark_ver2()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "d"
     assert available_targets[1].name == "e"
-    tree.match_element("e", available_targets)
+    tree.match("e", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -374,25 +348,25 @@ def test_plasmafig()-> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "c"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "a"
     assert available_targets[2].name == "c"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "a"
     assert available_targets[2].name == "c"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "a"
     assert available_targets[2].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "d"
@@ -404,23 +378,23 @@ def test_frostedmarble()-> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "b"
     assert available_targets[2].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "d"
@@ -432,21 +406,21 @@ def test_quirkynimbus()-> None:
     assert len(available_targets) == 2
     assert available_targets[0].name == "a"
     assert available_targets[1].name == "c"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "e"
     assert available_targets[1].name == "f"
-    tree.match_element("f", available_targets)
+    tree.match("f", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -456,27 +430,27 @@ def test_zebraquirk()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "d"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 3
     assert available_targets[0].name == "d"
     assert available_targets[1].name == "e"
     assert available_targets[2].name == "f"
-    tree.match_element("e", available_targets)
+    tree.match("e", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "e"
     assert available_targets[1].name == "f"
-    tree.match_element("f", available_targets)
+    tree.match("f", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 0
 
@@ -486,25 +460,25 @@ def test_orbitdoodle()-> None:
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "a"
-    tree.match_element("a", available_targets)
+    tree.match("a", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "b"
-    tree.match_element("b", available_targets)
+    tree.match("b", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "b"
     assert available_targets[1].name == "c"
-    tree.match_element("c", available_targets)
+    tree.match("c", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 2
     assert available_targets[0].name == "d"
     assert available_targets[1].name == "e"
-    tree.match_element("d", available_targets)
+    tree.match("d", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "e"
-    tree.match_element("e", available_targets)
+    tree.match("e", available_targets)
     available_targets = tree.get_available_targets()
     assert len(available_targets) == 1
     assert available_targets[0].name == "f"

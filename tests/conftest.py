@@ -1,7 +1,7 @@
-from dtd import ElementDefinitionsDefined, TreeDefinitionValidator
+from dtd import ElementDefinitionsDefined, DefinitionTreeValidator
 from xmlvalidator import ValidatorDocument, ValidatorTag
 
-def create_def_tree(definition: str) -> TreeDefinitionValidator:
+def create_def_tree(definition: str) -> DefinitionTreeValidator:
     dtd_element = "<!ELEMENT element " + definition + "><element></element>"
     doc= ValidatorDocument()
     doc.read_buffer(dtd_element)
@@ -16,4 +16,4 @@ def create_def_tree(definition: str) -> TreeDefinitionValidator:
     element_definition = doc.dtd.element_definitions[element.name]
     if not isinstance(element_definition, ElementDefinitionsDefined):
         raise ValueError()
-    return TreeDefinitionValidator(element_definition)
+    return DefinitionTreeValidator(element_definition)
