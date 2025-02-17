@@ -1,6 +1,4 @@
 from __future__ import annotations
-from curses.ascii import isspace
-
 
 from shared import EMPTY_SPACES
 from shared import QUOTES

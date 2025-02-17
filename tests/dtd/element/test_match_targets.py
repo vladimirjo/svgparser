@@ -1,5 +1,6 @@
-from dtd import ChoiceDefinition, SequenceDefinition, TargetDefinition
+from dtd import ChoiceDefinition, SequenceDefinition
 from tests.conftest import create_def_tree
+
 
 def test__nebulagazer() -> None:
     # Sequential group with repetition and choice

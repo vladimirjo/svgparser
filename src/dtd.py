@@ -16,12 +16,12 @@ from enum import auto
 from enum import unique
 
 
-# @unique
-# class ElementDefinitionsModifier(Enum):
-#     ONLY_ONE_TIME = auto()
-#     ZERO_OR_ONE_TIMES = auto()
-#     ONE_OR_MORE_TIMES = auto()
-#     ZERO_OR_MORE_TIMES = auto()
+@unique
+class ElementDefinitionsModifier(Enum):
+    ONLY_ONE = auto()
+    ZERO_OR_ONE = auto()
+    ONE_OR_MORE = auto()
+    ZERO_OR_MORE = auto()
 
 
 @unique
@@ -90,7 +90,7 @@ class ElementDefinitionsDefined:
         self.tokens = tokens
         self.parent = parent
         self.is_definition_valid: bool = True
-        self.modifier: int = self.get_modifier()
+        self.modifier: ElementDefinitionsModifier = self.get_modifier()
         self.strip_paranthesis()
         if not self.is_definition_valid:
             return
@@ -111,21 +111,17 @@ class ElementDefinitionsDefined:
     def __repr__(self) -> str:
         return self.__representation
 
-    def get_modifier(self) -> int:
-        # 0: ONLY_ONE
-        # 1: ZERO_OR_ONE
-        # 2: ONE_OR_MORE
-        # 3: ZERO_OR_MORE
+    def get_modifier(self) -> ElementDefinitionsModifier:
         if self.tokens[-1] == ("+"):
             self.tokens.pop(-1)
-            return 1
+            return ElementDefinitionsModifier.ZERO_OR_ONE
         if self.tokens[-1] == ("?"):
             self.tokens.pop(-1)
-            return 2
+            return ElementDefinitionsModifier.ONE_OR_MORE
         if self.tokens[-1] == ("*"):
             self.tokens.pop(-1)
-            return 3
-        return 0
+            return ElementDefinitionsModifier.ZERO_OR_MORE
+        return ElementDefinitionsModifier.ONLY_ONE
 
     def strip_paranthesis(self) -> None:
         if self.tokens[0] == ("("):
@@ -191,58 +187,54 @@ class ElementDefinitionsDefined:
 
 
 class ModifierDefinition:
-    def __init__(self, modifier: int) -> None:
+    def __init__(self, modifier: ElementDefinitionsModifier) -> None:
         self.modifier = modifier
 
     def __repr__(self) -> str:
-        # 0: ONLY_ONE
-        # 1: ZERO_OR_ONE
-        # 2: ONE_OR_MORE
-        # 3: ZERO_OR_MORE
         match self.modifier:
-            case 0:
+            case ElementDefinitionsModifier.ONLY_ONE:
                 return "ONLY_ONE"
-            case 1:
+            case ElementDefinitionsModifier.ZERO_OR_ONE:
                 return "ZERO_OR_ONE"
-            case 2:
+            case ElementDefinitionsModifier.ONE_OR_MORE:
                 return "ONE_OR_MORE"
-            case 3:
+            case ElementDefinitionsModifier.ZERO_OR_MORE:
                 return "ZERO_OR_MORE"
             case _:
                 return "UNKNOWN"
 
     def is_optional(self, count: int) -> bool:
         match self.modifier:
-            case 0:
+            case ElementDefinitionsModifier.ONLY_ONE:
                 return False
-            case 1:
+            case ElementDefinitionsModifier.ZERO_OR_ONE:
                 if count < 1:
                     return True
                 return False
-            case 2:
+            case ElementDefinitionsModifier.ONE_OR_MORE:
                 if count >= 1:
                     return True
                 return False
-            case 3:
+            case ElementDefinitionsModifier.ZERO_OR_MORE:
                 return True
             case _:
                 raise ValueError("Unknown value for Modifier.")
 
     def is_count_met(self, count: int) -> bool:
         match self.modifier:
-            case 0:
+            case ElementDefinitionsModifier.ONLY_ONE:
                 if count == 1:
                     return True
                 return False
-            case 1:
+            case ElementDefinitionsModifier.ZERO_OR_ONE:
                 if count == 0 or count == 1:
                     return True
                 return False
-            case 2:
+            case ElementDefinitionsModifier.ONE_OR_MORE:
                 if count >= 1:
                     return True
                 return False
-            case 3:
+            case ElementDefinitionsModifier.ZERO_OR_MORE:
                 if count >= 0:
                     return True
                 return False
@@ -269,11 +261,11 @@ class ChoiceDefinition:
 
     def is_optional(self) -> bool:
         if self.chosen_branch is not None:
-            return self.is_chosen_path_optional()
+            return self.is_chosen_branch_optional()
         else:
             return self.modifier.is_optional(self.count)
 
-    def is_chosen_path_optional(self) -> bool:
+    def is_chosen_branch_optional(self) -> bool:
         if self.chosen_branch is None:
             return False
         branch = self.chosen_branch
@@ -355,7 +347,7 @@ class SequenceDefinition:
 
     def is_optional(self) -> bool:
         if self.chosen_branch is not None:
-            if self.is_chosen_path_optional():
+            if self.is_chosen_branch_optional():
                 i = self.branches.index(self.chosen_branch)
                 while i < len(self.branches):
                     if not self.branches[i].is_optional():
@@ -368,7 +360,7 @@ class SequenceDefinition:
         else:
             return self.modifier.is_optional(self.count)
 
-    def is_chosen_path_optional(self) -> bool:
+    def is_chosen_branch_optional(self) -> bool:
         if self.chosen_branch is None:
             return False
         branch = self.chosen_branch
