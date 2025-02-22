@@ -3,16 +3,20 @@ requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "svgparser"
+name = "xmlvalidator"
 authors = [{ name = "Vladimir Jovanovic", email = "vladimirjo@protonmail.com" }]
-description = """Svg parser."""
+description = """XML Validator."""
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = [
     "svg",
     "text",
     "string",
-    "parse"
+    "xml",
+    "parse",
+    "parser",
+    "validate",
+    "validator"
 ]
 license = { text = "MIT" }
 classifiers = ["Programming Language :: Python :: 3"]
@@ -26,7 +30,7 @@ version = { file = "version.txt" }
 check = ["ruff", "mypy"]
 test = ["pytest", "pytest-cov"]
 build = ["build", "setuptools", "twine"]
-dev = ["svgparser[check, test, build]"]
+dev = ["xmlvalidator[check, test, build]"]
 
 [tool.ruff]
 line-length = 120

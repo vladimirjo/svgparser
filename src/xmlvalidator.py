@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from tkinter import N
 from typing import TYPE_CHECKING
+from enum import Enum, auto, unique
 
 
 if TYPE_CHECKING:
@@ -9,39 +9,11 @@ if TYPE_CHECKING:
 
 from buffer_controller import BufferController
 from dtd import Dtd
-from shared import verify_content_or_attribute_value
-from shared import verify_element_or_attribute_name
+from errorcollector import CritErr
+from errorcollector import ErrorCollector
 
-
-class ErrorCollector:
-    def __init__(self) -> None:
-        # dict[buffer_slot, list[in_buffer_pointer, message]]
-        self.buffer_slot: dict[int, list[tuple[int, str]]] = {}
-
-    # def add_pointer(self, buffer_slot: int, pointer: int, message: str) -> None:
-    #     if buffer_slot not in self.buffer_slot:
-    #         self.buffer_slot[buffer_slot] = []
-    #     self.buffer_slot[buffer_slot].append((pointer, message))
-
-    def add_token_start(self, token: Token, message: str) -> None:
-        if token.buffer_slot not in self.buffer_slot:
-            self.buffer_slot[token.buffer_slot] = []
-        self.buffer_slot[token.buffer_slot].append((token.resolve_pointer(0), message))
-
-    def add_token_end(self, token: Token, message: str) -> None:
-        if token.buffer_slot not in self.buffer_slot:
-            self.buffer_slot[token.buffer_slot] = []
-        self.buffer_slot[token.buffer_slot].append((token.resolve_pointer(len(token.chars) - 1), message))
-
-    def add_token_pointer(self, token: Token, in_token_pointer: int, message: str) -> None:
-        if token.buffer_slot not in self.buffer_slot:
-            self.buffer_slot[token.buffer_slot] = []
-        self.buffer_slot[token.buffer_slot].append((token.resolve_pointer(in_token_pointer), message))
-
-    # def sort_errors(self) -> None:
-    #     self.buffer_slot = dict(sorted(self.buffer_slot.items()))
-    #     for i in self.buffer_slot:
-    #         self.buffer_slot[i].sort(key=lambda error: error[0])
+# from shared import verify_content_or_attribute_value
+from shared import check_nmtoken, check_xmlname
 
 
 class ValidatorAttribute:
@@ -49,12 +21,12 @@ class ValidatorAttribute:
         self,
         name_token: Token,
         parent: None | ValidatorTag | ValidatorXmlDeclaration,
-        error_collector: ErrorCollector | None = None,
+        error_collector: ErrorCollector,
     ) -> None:
         self.name = name_token
         self.parent = parent
-        self.error_collector = error_collector
-        verify_element_or_attribute_name(self.name, self.error_collector)
+        self.err = error_collector
+        check_xmlname(self.name, self.err)
         self.value: None | Token = None
 
     def add_value(self, value_token: Token) -> None:
@@ -68,10 +40,10 @@ class ValidatorCData:
     def __init__(
         self,
         element_tokens: list[Token],
-        error_collector: ErrorCollector | None = None,
+        error_collector: ErrorCollector,
     ) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.content: None | Token = None
         self.current = 0
         self.end = len(self.tokens) - 1
@@ -89,28 +61,24 @@ class ValidatorCData:
         if self.tokens[self.current].match("<![CDATA["):
             self.current += 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "CData element is missing left angle bracket.")
+        self.err.add(self.tokens[0], CritErr.ELEMENT_MISSING_START_SEQUENCE)
 
     def verify_end(self) -> None:
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[-1], "CData element is missing right angle bracket.")
-            return
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_MISSING_END_SEQUENCE)
         if self.tokens[self.end].match("]]>"):
             self.end -= 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_end(self.tokens[self.end], "CData element is missing right angle bracket.")
+        if self.err is not None:
+            self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE)
 
     def verify_and_get_content(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Empty CData element.")
+            if self.err is not None:
+                self.err.add(self.tokens[self.current], CritErr.ELEMENT_EMPTY)
             return
         if len(self.tokens[self.current : self.end]) > 1:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Invalid CData element.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_INVALID)
             return
         self.content = self.tokens[self.current]
         self.current += 1
@@ -120,10 +88,10 @@ class ValidatorComment:
     def __init__(
         self,
         element_tokens: list[Token],
-        error_collector: ErrorCollector | None = None,
+        error_collector: ErrorCollector,
     ) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.content: None | Token = None
         self.current = 0
         self.end = len(self.tokens) - 1
@@ -141,36 +109,31 @@ class ValidatorComment:
         if self.tokens[self.current].match("<!--"):
             self.current += 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Comment element is missing left angle bracket.")
+        self.err.add(self.tokens[0], CritErr.ELEMENT_MISSING_START_SEQUENCE)
 
     def verify_end(self) -> None:
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[-1], "Comment element is missing closing bracket.")
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_MISSING_END_SEQUENCE)
             return
         if self.tokens[self.end].match("-->"):
             self.end -= 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_end(self.tokens[self.end], "Comment element is missing closing bracket.")
+        self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE)
 
     def verify_and_get_content(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Empty Comment element.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_EMPTY)
             return
         if len(self.tokens[self.current : self.end]) > 1:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Invalid Comment element.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_INVALID)
             return
         self.content = self.tokens[self.current]
 
 
 class ValidatorDoctype:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.parent: None | ValidatorDocument | ValidatorTag = None
@@ -268,26 +231,22 @@ class ValidatorDoctype:
         if isinstance(element, ValidatorParsedText) and self.is_ending(element):
             self.closed = True
             return True
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Doctype tree was not properly closed.")
-            if isinstance(element, ValidatorCData):
-                self.error_collector.add_token_start(element.tokens[0], "Cdata cannot be added to Doctype tree.")
-            if isinstance(element, ValidatorTag):
-                self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Doctype tree.")
-            if isinstance(element, ValidatorParsedText):
-                self.error_collector.add_token_start(element.tokens[0], "Parsed text cannot be added to Doctype tree.")
-            if isinstance(element, ValidatorDoctype):
-                self.error_collector.add_token_start(element.tokens[0], "Doctype cannot be added to Doctype tree.")
-            if isinstance(element, ValidatorXmlDeclaration):
-                self.error_collector.add_token_start(
-                    element.tokens[0], "Xml declaration cannot be added to Doctype tree."
-                )
+        self.err.add(self.tokens[0], CritErr.DOCTYPE_NOT_CLOSED)
+        if isinstance(element, ValidatorCData):
+            self.err.add(element.tokens[0], CritErr.DOCTYPE_CDATA_IN_TREE)
+        if isinstance(element, ValidatorTag):
+            self.err.add(element.tokens[0], CritErr.DOCTYPE_TAG_IN_TREE)
+        if isinstance(element, ValidatorParsedText):
+            self.err.add(element.tokens[0], CritErr.DOCTYPE_PARSED_TEXT_IN_TREE)
+        if isinstance(element, ValidatorDoctype):
+            self.err.add(element.tokens[0], CritErr.DOCTYPE_DOCTYPE_IN_TREE)
+        if isinstance(element, ValidatorXmlDeclaration):
+            self.err.add(element.tokens[0], CritErr.DOCTYPE_XML_DECLARATION_IN_TREE)
         return False
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!DOCTYPE"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[0], "Doctype is missing starting sequence.")
+            self.err.add(self.tokens[0], CritErr.DOCTYPE_MISSING_START_SEQUENCE)
         self.current += 1
         return
 
@@ -299,13 +258,10 @@ class ValidatorDoctype:
 
     def verify_and_get_root(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(
-                    self.tokens[0], "Doctype is missing root element and closing sequence."
-                )
+            self.err.add(self.tokens[0], CritErr.DOCTYPE_MISSING_ROOT_CLOSING)
             return
         self.rootname = self.tokens[self.current]
-        verify_element_or_attribute_name(self.rootname, self.error_collector)
+        check_xmlname(self.rootname, self.err)
         self.current += 1
 
     def optional_verify_and_get_extern_dtd(self) -> None:
@@ -319,24 +275,34 @@ class ValidatorDoctype:
             self.extern_public = self.verify_and_get_quotes_value("Public identifier")
             self.extern_system = self.verify_and_get_quotes_value("System identifier")
 
-    def verify_and_get_quotes_value(self, value_name: str) -> None | Token:
+    def verify_and_get_quotes_value(self, identifier: str) -> None | Token:
         quotes_value: None | Token = None
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.current], f"{value_name} value is missing.")
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_VALUE,
+                -1,
+                {identifier: identifier},
+            )
             return
         # The left quote
         if self.tokens[self.current].is_quotes():
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], f"{value_name} value is missing left quote."
-                )
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_LEFT_QUOTE,
+                0,
+                {identifier: identifier},
+            )
         # The quotes value
         if self.current > self.end or self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], f"{value_name} value is missing.")
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_VALUE,
+                0,
+                {identifier: identifier},
+            )
             return
         else:
             quotes_value = self.tokens[self.current]
@@ -345,10 +311,12 @@ class ValidatorDoctype:
         if self.tokens[self.current].is_quotes():
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], f"{value_name} value is missing right quote."
-                )
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_RIGHT_QUOTE,
+                0,
+                {identifier: identifier},
+            )
         return quotes_value
 
     def optional_verify_and_get_intern_dtd(self) -> None:
@@ -358,10 +326,7 @@ class ValidatorDoctype:
             self.current += 1
             self.intern_declarations_closed = False
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Invalid start of internal definitions."
-                )
+            self.err.add(self.tokens[self.current], CritErr.DOCTYPE_INVALID_INTERNAL_DEF_START)
             return
 
         if self.current > self.end:
@@ -370,20 +335,18 @@ class ValidatorDoctype:
             self.current += 1
             self.intern_declarations_closed = True
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Invalid end of internal definitions.")
+            self.err.add(self.tokens[self.current], CritErr.DOCTYPE_INVALID_INTERNAL_DEF_END)
             return
 
     def check_trailing(self) -> None:
         if self.current <= self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Invalid trailing sequence found.")
+            self.err.add(self.tokens[0], CritErr.INVALID_TRAILING_SEQUENCE)
 
 
 class ValidatorDtdElement:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
@@ -401,94 +364,236 @@ class ValidatorDtdElement:
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!ELEMENT"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[0], "Element tag is missing starting sequence.")
+            self.err.add(self.tokens[0], CritErr.DTD_ELEMENT_MISSING_START_SEQUENCE)
             return
         self.current += 1
 
     def verify_end(self) -> None:
         if not self.tokens[self.end].match(">"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.end], "Element tag is missing right angle bracket.")
+            self.err.add(self.tokens[self.end], CritErr.DTD_ELEMENT_MISSING_RIGHT_BRACKET)
             return
         self.end -= 1
 
     def verify_and_get_element(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Element tag is missing element name.")
+            self.err.add(self.tokens[0], CritErr.DTD_ELEMENT_MISSING_NAME, -1)
             return
         self.element = self.tokens[self.current]
-        verify_element_or_attribute_name(self.element, self.error_collector)
+        check_xmlname(self.element, self.err)
         self.current += 1
 
     def verify_and_get_definition_tokens(self) -> None:
         self.definition_tokens = self.tokens[self.current : self.end + 1]
 
 
+class AttrType(Enum):
+    CDATA = auto()
+    NMTOKEN = auto()
+    NMTOKENS = auto()
+    ENUM = auto()
+    ENTITY = auto()
+    ENTITIES = auto()
+    ID = auto()
+    IDREF = auto()
+    IDREFS = auto()
+    NOTATION = auto()
+
+
+class AttrDefault(Enum):
+    REQUIRED = auto()
+    IMPLIED = auto()
+    OPTIONAL = auto()
+    FIXED = auto()
+
+
+class DtdAttributeDefinition:
+    def __init__(
+        self,
+        attr_name: Token,
+        attr_type: AttrType,
+        attr_enum: list[Token] | None,
+        attr_default: AttrDefault,
+        attr_literal: Token | None,
+    ) -> None:
+        self.attr_name = attr_name
+        self.attr_type = attr_type
+        self.attr_enum = attr_enum
+        self.attr_default = attr_default
+        self.attr_literal = attr_literal
+
+
 class ValidatorDtdAttlist:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
         self.element: None | Token = None
-        self.attribute: None | Token = None
-        self.definition_tokens: None | list[Token] = None
+        self.attr_defs: list[DtdAttributeDefinition] = []
         self.verify_start()
         self.verify_end()
         self.verify_and_get_element()
-        self.verify_and_get_attribute()
-        self.verify_and_get_definition_tokens()
+        if not self.valid:
+            return
 
     def __repr__(self):
         if self.element is None:
-            return "DtdAttlist"
-        if self.attribute is None:
-            return f"DtdAttlist: {self.element.chars}"
-        return f"DtdAttlist: {self.element.chars} {self.attribute.chars}"
+            return "!ATTLIST"
+        return f"!ATTLIST: {self.element.chars}"
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!ATTLIST"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[0], "Attlist tag is missing starting sequence.")
+            self.err.add(self.tokens[0], CritErr.ELEMENT_MISSING_START_SEQUENCE)
             return
         self.current += 1
 
     def verify_end(self) -> None:
         if not self.tokens[self.end].match(">"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.end], "Attlist tag is missing right angle bracket.")
+            self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
             return
         self.end -= 1
 
     def verify_and_get_element(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Attlist tag is missing element name.")
+            self.err.add(self.tokens[0], CritErr.ELEMENT_NAME_MISSING, -1)
+            self.valid = False
             return
         self.element = self.tokens[self.current]
-        verify_element_or_attribute_name(self.element, self.error_collector)
+        check_xmlname(self.element, self.err)
         self.current += 1
 
-    def verify_and_get_attribute(self) -> None:
+    def get_attribute_name(self) -> Token | None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Attlist tag is missing attribute name.")
-            return
-        self.attribute = self.tokens[self.current]
-        verify_element_or_attribute_name(self.attribute, self.error_collector)
+            return None
+        name_pos = self.current
         self.current += 1
+        check_xmlname(self.tokens[name_pos], self.err)
+        return self.tokens[name_pos]
 
-    def verify_and_get_definition_tokens(self) -> None:
-        self.definition_tokens = self.tokens[self.current : self.end + 1]
+    def get_attr_type(self) -> AttrType | None:
+        if self.current > self.end:
+            return None
+        if self.tokens[self.current] == "CDATA":
+            self.current += 1
+            return AttrType.CDATA
+        if self.tokens[self.current] == "NMTOKEN":
+            self.current += 1
+            return AttrType.NMTOKEN
+        if self.tokens[self.current] == "NMTOKENS":
+            self.current += 1
+            return AttrType.NMTOKENS
+        if self.tokens[self.current] == "ENTITY":
+            self.current += 1
+            return AttrType.ENTITY
+        if self.tokens[self.current] == "ENTITIES":
+            self.current += 1
+            return AttrType.ENTITIES
+        if self.tokens[self.current] == "ID":
+            self.current += 1
+            return AttrType.ID
+        if self.tokens[self.current] == "IDREF":
+            self.current += 1
+            return AttrType.IDREF
+        if self.tokens[self.current] == "IDREFS":
+            self.current += 1
+            return AttrType.IDREFS
+        if self.tokens[self.current] == "NOTATION":
+            self.current += 1
+            return AttrType.NOTATION
+        if self.tokens[self.current] == "(":
+            self.current += 1
+            return AttrType.ENUM
+        self.err.add(self.tokens[self.current], CritErr.ATTLIST_TYPE_NOT_RECOGNIZED)
+        return None
+
+    def get_attr_enum(self) -> list[Token] | None:
+        enum_tokens: list[Token] = []
+        is_last_token_pipe = False
+        while self.current <= self.end or self.tokens[self.current] != ")":
+            if self.tokens[self.current] == "|" and is_last_token_pipe:
+                self.err.add(self.tokens[self.current], CritErr.ATTLIST_ENUM_SEQ_PIPE)
+                self.current += 1
+                continue
+            if self.tokens[self.current] != "|" and not is_last_token_pipe:
+                self.err.add(self.tokens[self.current], CritErr.ATTLIST_ENUM_PIPE_SEPARATION)
+                self.current += 1
+                continue
+            if self.tokens[self.current] == "|" and not is_last_token_pipe:
+                self.current += 1
+                is_last_token_pipe = True
+                continue
+            if self.tokens[self.current] != "|" and is_last_token_pipe:
+                check_nmtoken(self.tokens[self.current], self.err)
+                enum_tokens.append(self.tokens[self.current])
+                self.current += 1
+                is_last_token_pipe = False
+                continue
+        if self.current == ")":
+            self.current += 1
+        for enum_token in enum_tokens:
+            if enum_tokens.count(enum_token) > 1:
+                self.err.add(enum_token, CritErr.ATTLIST_ENUM_DUPLICATE_TAGS)
+        if len(enum_tokens) < 1:
+            return None
+        return enum_tokens
+
+    def get_attr_default(self) -> AttrDefault | None:
+        if self.current > self.end:
+            return None
+        if self.tokens[self.current] == "#REQUIRED":
+            self.current += 1
+            return AttrDefault.REQUIRED
+        if self.tokens[self.current] == "#IMPLIED":
+            self.current += 1
+            return AttrDefault.IMPLIED
+        if self.tokens[self.current] == "#FIXED":
+            self.current += 1
+            return AttrDefault.FIXED
+        if self.tokens[self.current].is_quotes():
+            return AttrDefault.OPTIONAL
+        self.err.add(self.tokens[self.current], CritErr.ATTLIST_DEFAULT_NOT_RECOGNIZED)
+        return None
+
+    def get_attr_literal(self) -> Token | None:
+        if self.current > self.end:
+            return None
+        quotes_in_use = self.tokens[self.current]
+        self.current += 1
+        if self.current > self.end:
+            return None
+        attr_default = self.tokens[self.current]
+        self.current += 1
+        if self.current > self.end:
+            return attr_default
+        if quotes_in_use == attr_default:
+            self.current += 1
+        return attr_default
+
+    def get_definitions(self) -> None:
+        while self.current <= self.end:
+            attr_name = self.get_attribute_name()
+            if attr_name is None:
+                return
+            attr_type = self.get_attr_type()
+            if attr_type is None:
+                return
+            attr_enum: list[Token] | None = None
+            if attr_type == AttrType.ENUM:
+                attr_enum = self.get_attr_enum()
+            attr_default = self.get_attr_default()
+            if attr_default is None:
+                return
+            attr_literal: Token | None = None
+            if attr_default == AttrDefault.OPTIONAL or attr_default == AttrDefault.FIXED:
+                attr_literal = self.get_attr_literal()
+            self.attr_defs.append(DtdAttributeDefinition(attr_name, attr_type, attr_enum, attr_default, attr_literal))
 
 
 class ValidatorDtdEntity:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
@@ -508,25 +613,22 @@ class ValidatorDtdEntity:
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!ENTITY"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Invalid Entity starting sequence.")
+            self.err.add(self.tokens[self.current], CritErr.DTD_ENTITY_MISSING_START_SEQUENCE)
         else:
             self.current += 1
 
     def verify_end(self) -> None:
         if not self.tokens[self.end].match(">"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.end], "Entity is missing right angle bracket.")
+            self.err.add(self.tokens[self.end], CritErr.DTD_ENTITY_MISSING_RIGHT_BRACKET, -1)
         else:
             self.end -= 1
 
     def verify_and_get_name(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.current], "Entity is missing a name.")
+            self.err.add(self.tokens[self.current], CritErr.DTD_ENTITY_MISSING_ELEMENT_NAME, -1)
         else:
             self.name = self.tokens[self.current]
-            verify_element_or_attribute_name(self.name, self.error_collector)
+            check_xmlname(self.name, self.err)
             self.current += 1
 
     def verify_and_get_entity_type(self) -> None:
@@ -543,24 +645,34 @@ class ValidatorDtdEntity:
         else:
             self.intern_value = self.verify_and_get_quotes_value("Entity substition")
 
-    def verify_and_get_quotes_value(self, value_name: str) -> None | Token:
+    def verify_and_get_quotes_value(self, identifier: str) -> None | Token:
         quotes_value: None | Token = None
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.current], f"{value_name} value is missing.")
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_VALUE,
+                -1,
+                {identifier: identifier},
+            )
             return
         # The left quote
         if self.tokens[self.current].is_quotes():
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], f"{value_name} value is missing left quote."
-                )
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_LEFT_QUOTE,
+                0,
+                {identifier: identifier},
+            )
         # The quotes value
         if self.current > self.end or self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], f"{value_name} value is missing.")
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_VALUE,
+                0,
+                {identifier: identifier},
+            )
             return
         else:
             quotes_value = self.tokens[self.current]
@@ -569,17 +681,19 @@ class ValidatorDtdEntity:
         if self.tokens[self.current].is_quotes():
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], f"{value_name} value is missing right quote."
-                )
+            self.err.add(
+                self.tokens[self.current],
+                CritErr.DOCTYPE_IDENTIFIER_MISSING_RIGHT_QUOTE,
+                0,
+                {identifier: identifier},
+            )
         return quotes_value
 
 
 class ValidatorDtdNotation:
-    def __init__(self, tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.parent: None | ValidatorDoctype | ValidatorDtdIncludeIgnore | ValidatorDocument | ValidatorTag = None
@@ -600,46 +714,36 @@ class ValidatorDtdNotation:
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!NOTATION"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Notation tag is missing starting sequence."
-                )
+            self.err.add(self.tokens[self.current], CritErr.DTD_NOTATION_MISSING_START_SEQUENCE)
             return
         self.current += 1
 
     def verify_end(self) -> None:
         if not self.tokens[self.end].match(">"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(
-                    self.tokens[self.end], "Notation tag is missing right angle bracket."
-                )
+            self.err.add(self.tokens[self.end], CritErr.DTD_NOTATION_MISSING_RIGHT_BRACKET, -1)
             return
         self.end -= 1
 
     def verify_and_get_notation(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.current], "Notation tag is missing notation name.")
+            self.err.add(self.tokens[self.current], CritErr.DTD_NOTATION_MISSING_NOTATION_NAME, -1)
         else:
             self.element = self.tokens[self.current]
-            verify_element_or_attribute_name(self.element, self.error_collector)
+            check_xmlname(self.element, self.err)
             self.current += 1
 
     def verify_and_get_value(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[self.current], "Notation tag is missing value.")
+            self.err.add(self.tokens[self.current], CritErr.DTD_NOTATION_MISSING_NOTATION_VALUE, -1)
             return
         # The left quote
         if self.tokens[self.current].is_quotes():
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Notation value is missing left quote.")
+            self.err.add(self.tokens[self.current], CritErr.DTD_NOTATION_MISSING_NOTATION_VALUE_LEFT_QUOTE)
         # The notation value
         if self.current > self.end or self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Notation value is missing.")
+            self.err.add(self.tokens[self.current], CritErr.DTD_NOTATION_MISSING_NOTATION_VALUE)
             return
         else:
             self.substitute_text = self.tokens[self.current]
@@ -648,21 +752,17 @@ class ValidatorDtdNotation:
         if self.tokens[self.current].is_quotes():
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Notation value is missing right quote."
-                )
+            self.err.add(self.tokens[self.current], CritErr.DTD_NOTATION_MISSING_NOTATION_VALUE_RIGHT_QUOTE)
 
     def check_trailing(self) -> None:
         if self.current <= self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Invalid trailing sequence found.")
+            self.err.add(self.tokens[0], CritErr.INVALID_TRAILING_SEQUENCE, -1)
 
 
 class ValidatorDtdIncludeIgnore:
-    def __init__(self, tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.include: bool = False
@@ -800,30 +900,22 @@ class ValidatorDtdIncludeIgnore:
         if isinstance(element, ValidatorParsedText) and self.is_ending(element):
             self.closed = True
             return True
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Conditional block was not properly closed.")
-            if isinstance(element, ValidatorCData):
-                self.error_collector.add_token_start(element.tokens[0], "Cdata cannot be added to Conditional block.")
-            if isinstance(element, ValidatorTag):
-                self.error_collector.add_token_start(element.tokens[0], "Tag cannot be added to Conditional block.")
-            if isinstance(element, ValidatorParsedText):
-                self.error_collector.add_token_start(
-                    element.tokens[0], "Parsed text cannot be added to Conditional block"
-                )
-            if isinstance(element, ValidatorDoctype):
-                self.error_collector.add_token_start(element.tokens[0], "Doctype cannot be added to Conditional block")
-            if isinstance(element, ValidatorXmlDeclaration):
-                self.error_collector.add_token_start(
-                    element.tokens[0], "Xml declaration cannot be added to Doctype tree."
-                )
+        self.err.add(self.tokens[0], CritErr.INCLUDEIGNORE_NOT_CLOSED)
+        if isinstance(element, ValidatorCData):
+            self.err.add(element.tokens[0], CritErr.INCLUDEIGNORE_CDATA_IN_TREE)
+        if isinstance(element, ValidatorTag):
+            self.err.add(element.tokens[0], CritErr.INCLUDEIGNORE_TAG_IN_TREE)
+        if isinstance(element, ValidatorParsedText):
+            self.err.add(element.tokens[0], CritErr.INCLUDEIGNORE_PARSED_TEXT_IN_TREE)
+        if isinstance(element, ValidatorDoctype):
+            self.err.add(element.tokens[0], CritErr.INCLUDEIGNORE_DOCTYPE_IN_TREE)
+        if isinstance(element, ValidatorXmlDeclaration):
+            self.err.add(element.tokens[0], CritErr.INCLUDEIGNORE_XML_DECLARATION_IN_TREE)
         return False
 
     def verify_start(self) -> None:
         if not self.tokens[self.current].match("<!["):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Conditional section is missing starting sequence."
-                )
+            self.err.add(self.tokens[self.current], CritErr.INCLUDEIGNORE_MISSING_START_SEQUENCE)
             return
         self.current += 1
 
@@ -835,42 +927,31 @@ class ValidatorDtdIncludeIgnore:
 
     def verify_conditional(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Condition is missing.")
+            self.err.add(self.tokens[self.current], CritErr.INCLUDEIGNORE_MISSING_CONDITION)
         if self.tokens[self.current].match("INCLUDE"):
             self.include = True
             self.current += 1
         elif self.tokens[self.current].match("IGNORE"):
             self.current += 1
         else:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Conditional section is not recognized."
-                )
+            self.err.add(self.tokens[self.current], CritErr.INCLUDEIGNORE_CONDITION_NOT_RECOGNIZED)
 
     def verify_begin_section(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Start of definitions in conditional section is missing."
-                )
+            self.err.add(self.tokens[self.current], CritErr.INCLUDEIGNORE_CONDITION_START_MISSING)
         if not self.tokens[self.current].match("["):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "Start of definitions in conditional section is not recognized."
-                )
+            self.err.add(self.tokens[self.current], CritErr.INCLUDEIGNORE_CONDITION_START_NOT_RECOGNIZED)
         self.current += 1
 
     def check_trailing(self) -> None:
         if self.current <= self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Invalid trailing sequence found.")
+            self.err.add(self.tokens[0], CritErr.INVALID_TRAILING_SEQUENCE, -1)
 
 
 class ValidatorInstructions:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.content: None | Token = None
         self.current = 0
         self.end = len(self.tokens) - 1
@@ -888,32 +969,23 @@ class ValidatorInstructions:
         if self.tokens[self.current].match("<?"):
             self.current += 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Instructions element is missing left angle bracket.")
+        self.err.add(self.tokens[0], CritErr.ELEMENT_MISSING_START_SEQUENCE)
 
     def verify_end(self) -> None:
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(
-                    self.tokens[-1], "Instructions element is missing right angle bracket."
-                )
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
             return
         if self.tokens[self.end].match("?>"):
             self.end -= 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_end(
-                self.tokens[self.end], "Instructions element is missing closing bracket."
-            )
+        self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE)
 
     def verify_and_get_content(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Empty Instructions element.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_EMPTY)
             return
         if len(self.tokens[self.current : self.end]) > 1:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "Invalid Instructions element.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_INVALID)
             return
         self.content = self.tokens[self.current]
 
@@ -922,10 +994,10 @@ class ValidatorTag:
     def __init__(
         self,
         element_tokens: list[Token],
-        error_collector: ErrorCollector | None = None,
+        error_collector: ErrorCollector,
     ) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.name: None | Token = None
         self.closed = False
         self.parent: None | ValidatorDocument | ValidatorTag = None
@@ -999,25 +1071,21 @@ class ValidatorTag:
             self.children.append(element)
             element.add_to_tree = False
             return True
-        if self.error_collector is not None:
-            if isinstance(element, ValidatorDoctype):
-                self.error_collector.add_token_start(
-                    element.tokens[0], "Doctype should be added before root tag element."
-                )
-            if isinstance(element, ValidatorDtdAttlist):
-                self.error_collector.add_token_start(element.tokens[0], "Attlist should be inside Doctype.")
-            if isinstance(element, ValidatorDtdElement):
-                self.error_collector.add_token_start(element.tokens[0], "Element should be inside Doctype.")
-            if isinstance(element, ValidatorDtdEntity):
-                self.error_collector.add_token_start(element.tokens[0], "Entity should be inside Doctype.")
-            if isinstance(element, ValidatorDtdNotation):
-                self.error_collector.add_token_start(element.tokens[0], "Notation should be inside Doctype.")
-            if isinstance(element, ValidatorDtdIncludeIgnore):
-                self.error_collector.add_token_start(element.tokens[0], "Conditional should be inside Doctype.")
-            if isinstance(element, ValidatorXmlDeclaration):
-                self.error_collector.add_token_start(
-                    element.tokens[0], "Xml declaration cannot be added to Doctype tree."
-                )
+
+        if isinstance(element, ValidatorDoctype):
+            self.err.add(element.tokens[0], CritErr.TAG_DOCTYPE_IN_TREE)
+        if isinstance(element, ValidatorDtdAttlist):
+            self.err.add(element.tokens[0], CritErr.TAG_DTD_ATTLIST_IN_TREE)
+        if isinstance(element, ValidatorDtdElement):
+            self.err.add(element.tokens[0], CritErr.TAG_DTD_ELEMENT_IN_TREE)
+        if isinstance(element, ValidatorDtdEntity):
+            self.err.add(element.tokens[0], CritErr.TAG_DTD_ENTITY_IN_TREE)
+        if isinstance(element, ValidatorDtdNotation):
+            self.err.add(element.tokens[0], CritErr.TAG_DTD_NOTATION_IN_TREE)
+        if isinstance(element, ValidatorDtdIncludeIgnore):
+            self.err.add(element.tokens[0], CritErr.TAG_DTD_INCLUDEIGNORE_IN_TREE)
+        if isinstance(element, ValidatorXmlDeclaration):
+            self.err.add(element.tokens[0], CritErr.TAG_XML_DECLARATION_IN_TREE)
         element.parent = self
         self.children.append(element)
         return False
@@ -1026,13 +1094,11 @@ class ValidatorTag:
         if self.tokens[self.current].match("<"):
             self.current += 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Element is missing left angle bracket.")
+        self.err.add(self.tokens[0], CritErr.ELEMENT_MISSING_START_SEQUENCE)
 
     def verify_end(self) -> None:
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[-1], "Element is missing right angle bracket.")
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
             return
         if self.tokens[self.end].match(">"):
             self.end -= 1
@@ -1043,11 +1109,9 @@ class ValidatorTag:
             return
         if self.tokens[self.end].endswith(">"):
             self.end -= 1
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[-1], "Element has wrong ending sequence.")
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_WRONG_END_SEQUENCE, -1)
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_end(self.tokens[self.end], "Element is missing right angle bracket.")
+        self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
 
     def close_tag(self, closing_tagname: str) -> bool:
         if self.name is None:
@@ -1059,41 +1123,31 @@ class ValidatorTag:
 
     def parse_tagname(self) -> None:
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[0], "Tag name is missing.")
+            self.err.add(self.tokens[0], CritErr.ELEMENT_NAME_MISSING)
             return
         self.name = self.tokens[self.current]
-        verify_element_or_attribute_name(self.name, self.error_collector)
+        check_xmlname(self.name, self.err)
         self.current += 1
 
     def parse_attribute_value(self) -> None | Token:
         attribute_value: Token | None = None
         if not self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "The attribute value must be enclosed in quotes."
-                )
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_NOT_IN_QUOTES)
         else:
             self.current += 1
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "The attribute value is missing.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_MISSING)
             return
         if self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "The attribute value is missing.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_MISSING)
             return
         attribute_value = self.tokens[self.current]
         if self.current > self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "The attribute value must be enclosed in quotes."
-                )
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_NOT_IN_QUOTES)
             return attribute_value
         self.current += 1
         if not self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(attribute_value, "The attribute value must be enclosed in quotes.")
+            self.err.add(attribute_value, CritErr.ELEMENT_VALUE_NOT_IN_QUOTES, -1)
         return attribute_value
 
     def parse_attributes(self) -> None:
@@ -1101,28 +1155,25 @@ class ValidatorTag:
         while self.current < self.end:
             if self.tokens[self.current].match("="):
                 if attribute is None:
-                    if self.error_collector is not None:
-                        self.error_collector.add_token_start(
-                            self.tokens[self.current], "Missing attribute name to attach the value."
-                        )
+                    self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_MISSING_NAME)
                     self.current += 1
                     continue
                 self.current += 1
                 attribute_value = self.parse_attribute_value()
                 if attribute_value is not None:
-                    verify_content_or_attribute_value(attribute_value, self.error_collector)
+                    # verify_content_or_attribute_value(attribute_value, self.err)
                     attribute.value = attribute_value
                 self.current += 1
                 continue
-            attribute = ValidatorAttribute(self.tokens[self.current], self)
+            attribute = ValidatorAttribute(self.tokens[self.current], self, self.err)
             self.attributes.append(attribute)
             self.current += 1
 
 
 class ValidatorParsedText:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.parent: None | ValidatorDocument | ValidatorTag = None
         self.content: None | Token = None
         self.add_to_tree: bool = True
@@ -1139,17 +1190,15 @@ class ValidatorParsedText:
 
     def get_content(self) -> None:
         if len(self.tokens) > 1:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[0], "Invalid Text element.")
+            self.err.add(self.tokens[0], CritErr.ELEMENT_INVALID)
             return
         self.content = self.tokens[0]
 
     def verify_content(self) -> None:
         if self.content is None:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[0], "Invalid Text element.")
+            self.err.add(self.tokens[0], CritErr.ELEMENT_INVALID)
             return
-        verify_content_or_attribute_value(self.content, self.error_collector)
+        # verify_content_or_attribute_value(self.content, self.err)
 
     def __repr__(self):
         if self.content is None:
@@ -1158,9 +1207,9 @@ class ValidatorParsedText:
 
 
 class ValidatorXmlDeclaration:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector | None = None) -> None:
+    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
         self.tokens = element_tokens
-        self.error_collector = error_collector
+        self.err = error_collector
         self.current = 0
         self.end = len(self.tokens) - 1
         self.parent: None | ValidatorDocument | ValidatorTag = None
@@ -1175,8 +1224,7 @@ class ValidatorXmlDeclaration:
 
     def verify_xml_declaration(self) -> None:
         if not (self.tokens[0].buffer_slot == 0 and self.tokens[0].buffer_pointer == 0):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[0], "XML declaration must be the on the first line.")
+            self.err.add(self.tokens[0], CritErr.XMLDECL_NOT_FIRST_LINE)
         if len(self.attributes) >= 1:
             self.verify_attribute_version(self.attributes[0])
         if len(self.attributes) >= 2:
@@ -1184,129 +1232,79 @@ class ValidatorXmlDeclaration:
         if len(self.attributes) >= 3:
             self.verify_attribute_standalone(self.attributes[2])
         if len(self.attributes) > 3:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.attributes[3].name,
-                    "Only three atributtes are allowed: version, encoding and standalone.",
-                )
+            self.err.add(self.attributes[3].name, CritErr.XMLDECL_OVER_THREE_ATTRS)
 
     def verify_attribute_version(self, attribute: ValidatorAttribute) -> None:
         if not attribute.name.match("version"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    attribute.name,
-                    "The first attribute in declaration must be the value attribute.",
-                )
+            self.err.add(attribute.name, CritErr.XMLDECL_FIRST_ATTR_WRONG)
+            return
         if attribute.value is None:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(
-                    attribute.name,
-                    "The first attribute is missing its value.",
-                )
+            self.err.add(attribute.name, CritErr.XMLDECL_FIRST_ATTR_MISSING_VALUE, -1)
             return
         if not attribute.value.match("1.0"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    attribute.value,
-                    "Only the version 1.0 is supported.",
-                )
+            self.err.add(attribute.value, CritErr.XMLDECL_FIRST_ATTR_NOT_VALID_VALUE)
             return
 
     def verify_attribute_encoding(self, attribute: ValidatorAttribute) -> None:
         if not attribute.name.match("encoding"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    attribute.name,
-                    "The second attribute in declaration must be the encoding attribute.",
-                )
+            self.err.add(attribute.name, CritErr.XMLDECL_SECOND_ATTR_WRONG)
+            return
         if attribute.value is None:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(
-                    attribute.name,
-                    "The second attribute is missing its value.",
-                )
+            self.err.add(attribute.name, CritErr.XMLDECL_SECOND_ATTR_MISSING_VALUE, -1)
             return
         if attribute.value.chars not in {"UTF-8", "UTF-16"}:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    attribute.value,
-                    "Only the UTF-8 and UTF-16 encodings are supported.",
-                )
+            self.err.add(attribute.value, CritErr.XMLDECL_SECOND_ATTR_NOT_VALID_VALUE)
             return
 
     def verify_attribute_standalone(self, attribute: ValidatorAttribute) -> None:
         if not attribute.name.match("standalone"):
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    attribute.name,
-                    "The third attribute in declaration must be the standalone attribute.",
-                )
+            self.err.add(attribute.name, CritErr.XMLDECL_THIRD_ATTR_WRONG)
+            return
         if attribute.value is None:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(
-                    attribute.name,
-                    "The third attribute is missing its value.",
-                )
+            self.err.add(attribute.name, CritErr.XMLDECL_THIRD_ATTR_MISSING_VALUE, -1)
             return
         if attribute.value.chars not in {"yes", "no"}:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    attribute.value,
-                    "Only the yes and no values are allowed for the standalone attribute.",
-                )
+            self.err.add(attribute.value, CritErr.XMLDECL_THIRD_ATTR_NOT_VALID_VALUE)
             return
 
     def verify_start(self) -> None:
         if self.tokens[self.current].match("<?xml"):
             self.current += 1
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(self.tokens[0], "Xml declaration has wrong opening sequence.")
+        self.err.add(self.tokens[0], CritErr.ELEMENT_WRONG_START_SEQUENCE)
 
     def verify_end(self) -> None:
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[-1], "Xml declaration is missing ending sequence.")
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
             return
         if self.tokens[self.end].match("?>"):
             self.end -= 1
             return
         if self.tokens[self.end].endswith(">"):
             self.end -= 1
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(self.tokens[-1], "Xml declaration has wrong ending sequence.")
+            self.err.add(self.tokens[-1], CritErr.ELEMENT_WRONG_END_SEQUENCE, -1)
             return
-        if self.error_collector is not None:
-            self.error_collector.add_token_end(self.tokens[self.end], "Xml declaration is missing ending sequence.")
+        self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
 
     def parse_attribute_value(self) -> None | Token:
         attribute_value: Token | None = None
         if not self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "The attribute value must be enclosed in quotes."
-                )
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_NOT_IN_QUOTES)
         else:
             self.current += 1
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "The attribute value is missing.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_MISSING)
             return
         if self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(self.tokens[self.current], "The attribute value is missing.")
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_MISSING)
             return
         attribute_value = self.tokens[self.current]
         if self.current == self.end:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(
-                    self.tokens[self.current], "The attribute value must be enclosed in quotes."
-                )
+            self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_NOT_IN_QUOTES)
             return attribute_value
         self.current += 1
         if not self.tokens[self.current].is_quotes():
-            if self.error_collector is not None:
-                self.error_collector.add_token_end(attribute_value, "The attribute value must be enclosed in quotes.")
+            self.err.add(attribute_value, CritErr.ELEMENT_VALUE_NOT_IN_QUOTES, -1)
         return attribute_value
 
     def parse_attributes(self) -> None:
@@ -1314,20 +1312,17 @@ class ValidatorXmlDeclaration:
         while self.current < self.end:
             if self.tokens[self.current].match("="):
                 if attribute is None:
-                    if self.error_collector is not None:
-                        self.error_collector.add_token_start(
-                            self.tokens[self.current], "Missing attribute name to attach the value."
-                        )
+                    self.err.add(self.tokens[self.current], CritErr.ELEMENT_VALUE_MISSING_NAME)
                     self.current += 1
                     continue
                 self.current += 1
                 attribute_value = self.parse_attribute_value()
                 if attribute_value is not None:
-                    verify_content_or_attribute_value(attribute_value, self.error_collector)
+                    # verify_content_or_attribute_value(attribute_value, self.err)
                     attribute.value = attribute_value
                 self.current += 1
                 continue
-            attribute = ValidatorAttribute(self.tokens[self.current], self, self.error_collector)
+            attribute = ValidatorAttribute(self.tokens[self.current], self, self.err)
             self.attributes.append(attribute)
             self.current += 1
 
@@ -1335,7 +1330,7 @@ class ValidatorXmlDeclaration:
 class ValidatorDocument:
     def __init__(self) -> None:
         self.buffer_controller = BufferController()
-        self.error_collector = ErrorCollector()
+        self.err = ErrorCollector()
         self.dtd: None | Dtd = None
         self.children: list[
             ValidatorTag
@@ -1361,24 +1356,24 @@ class ValidatorDocument:
     def parse_end_tag(self, tokens: list[Token]) -> None:
         # name of a closing tag
         if not tokens[0].match("</"):
-            self.error_collector.add_token_start(tokens[0], "Invalid closing tag.")
+            self.err.add(tokens[0], CritErr.ENDTAG_INVALID)
             return
         if len(tokens) == 1:
-            self.error_collector.add_token_start(tokens[0], "Incomplete closing tag.")
+            self.err.add(tokens[0], CritErr.ENDTAG_INCOMPLETE)
             return
         if len(tokens) == 2:
             if tokens[1].match(">"):
-                self.error_collector.add_token_start(tokens[1], "Closing tag is missing tag name.")
+                self.err.add(tokens[1], CritErr.ENDTAG_MISSING_NAME)
                 return
             else:
-                self.error_collector.add_token_end(tokens[1], "Closing tag is missing closing bracket.")
+                self.err.add(tokens[1], CritErr.ENDTAG_MISSING_END_SEQUENCE, -1)
         if len(tokens) == 3 and not tokens[2].match(">"):
-            self.error_collector.add_token_end(tokens[1], "Invalid closing sequence for the closing tag.")
+            self.err.add(tokens[1], CritErr.ENDTAG_INVALID_END_SEQUENCE, -1)
         endtag_name = tokens[1].chars
         # Check for blank spaces in beggining of a name
         active_tag = self.get_active_tag()
         if active_tag is None:
-            self.error_collector.add_token_start(tokens[1], "End tag not matching any start tag.")
+            self.err.add(tokens[1], CritErr.ENDTAG_NOT_MATCH, -1)
             return
         missing_close_tags: list[ValidatorTag] = []
         while isinstance(active_tag, ValidatorTag):
@@ -1386,13 +1381,13 @@ class ValidatorDocument:
                 if len(missing_close_tags) > 0:
                     for tag in missing_close_tags:
                         if tag.name is not None:
-                            self.error_collector.add_token_start(tag.name, "The tag is missing its closing tag.")
+                            self.err.add(tag.name, CritErr.STARTTAG_NOT_MATCH)
                 break
             else:
                 missing_close_tags.append(active_tag)
                 active_tag = active_tag.parent
         if active_tag is None or isinstance(active_tag, ValidatorDocument):
-            self.error_collector.add_token_start(tokens[1], "End tag not matching any start tag.")
+            self.err.add(tokens[1], CritErr.ENDTAG_NOT_MATCH)
 
     def get_active_tag(self) -> None | ValidatorTag:
         if len(self.children) == 0:
@@ -1412,7 +1407,7 @@ class ValidatorDocument:
     def check_closing_tags(self) -> None:
         active_tag = self.get_active_tag()
         while isinstance(active_tag, ValidatorTag):
-            self.error_collector.add_token_start(active_tag.tokens[0], "Missing close tag.")
+            self.err.add(active_tag.tokens[0], CritErr.STARTTAG_NOT_MATCH)
             active_tag = active_tag.parent
 
     def add_element_to_validation_tree(
@@ -1455,23 +1450,21 @@ class ValidatorDocument:
                     break
                 i += 1
             if not is_valid:
-                self.error_collector.add_token_start(tag.tokens[0], "Only one root tag is allowed.")
+                self.err.add(tag.tokens[0], CritErr.ONLY_ONE_ROOT)
 
     def validate_cdata_and_parsedtext_location(self, text: ValidatorCData | ValidatorParsedText) -> None:
         if not isinstance(text.parent, ValidatorDocument) and text.parent is not None:
             return
         if isinstance(text, ValidatorCData):
-            self.error_collector.add_token_start(text.tokens[0], "Cdata sections can be only inside a tag element.")
+            self.err.add(text.tokens[0], CritErr.CDATA_NOT_INSIDE_TAG)
             return
-        self.error_collector.add_token_start(text.tokens[0], "Parsed text can be only inside a tag element.")
+        self.err.add(text.tokens[0], CritErr.PARSEDTEXT_NOT_INSIDE_TAG)
 
     def validate_xmldecl_location(self, xmldecl: ValidatorXmlDeclaration) -> None:
         if isinstance(xmldecl.parent, ValidatorDocument):
             i = xmldecl.parent.children.index(xmldecl)
             if i > 0:
-                self.error_collector.add_token_start(
-                    xmldecl.tokens[0], "Xml prologue must be declared first in document."
-                )
+                self.err.add(xmldecl.tokens[0], CritErr.XMLDECL_NOT_FIRST_LINE)
         return
 
     def validate_doctype_location(self, doctype: ValidatorDoctype) -> None:
@@ -1485,9 +1478,7 @@ class ValidatorDocument:
                     break
                 i += 1
             if not is_valid:
-                self.error_collector.add_token_start(
-                    doctype.tokens[0], "Doctype must come after either xml declaration,comments or instructions."
-                )
+                self.err.add(doctype.tokens[0], CritErr.DOCTYPE_LOCATION)
 
     def validate_dtd_elements(
         self,
@@ -1498,91 +1489,91 @@ class ValidatorDocument:
         | ValidatorDtdIncludeIgnore,
     ) -> None:
         if isinstance(dtd_element.parent, ValidatorDocument):
-            self.error_collector.add_token_start(dtd_element.tokens[0], "Dtd elements must be inside Doctype section.")
+            self.err.add(dtd_element.tokens[0], CritErr.DTD_ELEMENTS_LOCATION)
         return
 
     def add_doctype_to_dtd(self, doctype: ValidatorDoctype) -> None:
         if self.dtd is not None:
-            self.error_collector.add_token_start(doctype.tokens[0], "Dtd is already defined.")
-        self.dtd = Dtd(doctype.rootname, self.error_collector)
+            self.err.add(doctype.tokens[0], CritErr.DTD_ALREADY_DEFINED)
+        self.dtd = Dtd(self.err, doctype.rootname)
 
     def add_dtdelement_to_dtd(self, dtdelement: ValidatorDtdElement) -> None:
         if self.dtd is None:
-            self.dtd = Dtd(None, self.error_collector)
+            self.dtd = Dtd(self.err, None)
         if dtdelement.element is not None and dtdelement.definition_tokens is not None:
             self.dtd.define_element(dtdelement.element, dtdelement.definition_tokens)
 
-    def validate_tag_in_dtd(self, tag: ValidatorTag) -> bool:
+    def validate_tag_in_dtd(self, tag: ValidatorTag) -> None:
         if self.dtd is None:
-            return False
+            return
         if tag.name is not None:
             parsed_element = tag.name
-        parsed_child_elements: list[Token] = []
+        parsed_child_elements: list[ValidatorTag | ValidatorCData | ValidatorParsedText] = []
         for child in tag.children:
             if isinstance(child, ValidatorTag):
                 if child.name is not None:
-                    parsed_child_elements.append(child.name)
+                    parsed_child_elements.append(child)
                     continue
-            # if isinstance(child, ValidatorCData):
-            #     parsed_children.append(child)
-            #     continue
-            # if isinstance(child, ValidatorParsedText):
-            #     parsed_children.append(child)
-            #     continue
-        return self.dtd.validate_parsed_element_with_element_definitions(parsed_element, parsed_child_elements)
+            if isinstance(child, ValidatorCData):
+                parsed_child_elements.append(child)
+                continue
+            if isinstance(child, ValidatorParsedText):
+                parsed_child_elements.append(child)
+                continue
+        self.dtd.validate_parsed_element_with_element_definitions(parsed_element, parsed_child_elements)
 
     def build_validation_tree(self) -> None:
         tokens = self.buffer_controller.get_buffer_tokens()
         while tokens is not None:
             match tokens[0].chars:
                 case "<?xml":
-                    xmldecl = ValidatorXmlDeclaration(tokens, self.error_collector)
+                    xmldecl = ValidatorXmlDeclaration(tokens, self.err)
                     self.add_element_to_validation_tree(xmldecl)
                     self.validate_xmldecl_location(xmldecl)
                 case "<![CDATA[":
-                    cdata = ValidatorCData(tokens, self.error_collector)
+                    cdata = ValidatorCData(tokens, self.err)
                     self.add_element_to_validation_tree(cdata)
                     self.validate_cdata_and_parsedtext_location(cdata)
                 case "<!DOCTYPE":
-                    doctype = ValidatorDoctype(tokens, self.error_collector)
+                    doctype = ValidatorDoctype(tokens, self.err)
                     self.add_element_to_validation_tree(doctype)
                     self.add_doctype_to_dtd(doctype)
                     self.validate_doctype_location(doctype)
                 case "<!ELEMENT":
-                    dtd_element = ValidatorDtdElement(tokens, self.error_collector)
+                    dtd_element = ValidatorDtdElement(tokens, self.err)
                     self.add_element_to_validation_tree(dtd_element)
                     self.add_dtdelement_to_dtd(dtd_element)
                     self.validate_dtd_elements(dtd_element)
                 case "<!ATTLIST":
-                    dtd_attlist = ValidatorDtdAttlist(tokens, self.error_collector)
+                    dtd_attlist = ValidatorDtdAttlist(tokens, self.err)
                     self.add_element_to_validation_tree(dtd_attlist)
                     self.validate_dtd_elements(dtd_attlist)
                 case "<!NOTATION":
-                    dtd_notation = ValidatorDtdNotation(tokens, self.error_collector)
+                    dtd_notation = ValidatorDtdNotation(tokens, self.err)
                     self.add_element_to_validation_tree(dtd_notation)
                     self.validate_dtd_elements(dtd_notation)
                 case "<!ENTITY":
-                    dtd_entity = ValidatorDtdEntity(tokens, self.error_collector)
+                    dtd_entity = ValidatorDtdEntity(tokens, self.err)
                     self.add_element_to_validation_tree(dtd_entity)
                     self.validate_dtd_elements(dtd_entity)
                 case "<![":
-                    dtd_includeignore = ValidatorDtdIncludeIgnore(tokens, self.error_collector)
+                    dtd_includeignore = ValidatorDtdIncludeIgnore(tokens, self.err)
                     self.add_element_to_validation_tree(dtd_includeignore)
                     self.validate_dtd_elements(dtd_includeignore)
                 case "<?":
-                    instructions = ValidatorInstructions(tokens, self.error_collector)
+                    instructions = ValidatorInstructions(tokens, self.err)
                     self.add_element_to_validation_tree(instructions)
                 case "<!--":
-                    comment = ValidatorComment(tokens, self.error_collector)
+                    comment = ValidatorComment(tokens, self.err)
                     self.add_element_to_validation_tree(comment)
                 case "</":
                     self.parse_end_tag(tokens)
                 case "<":
-                    tag = ValidatorTag(tokens, self.error_collector)
+                    tag = ValidatorTag(tokens, self.err)
                     self.add_element_to_validation_tree(tag)
                     self.validate_tag_location(tag)
                 case _:
-                    parsedtext = ValidatorParsedText(tokens, self.error_collector)
+                    parsedtext = ValidatorParsedText(tokens, self.err)
                     while not parsedtext.is_empty() and parsedtext.add_to_tree:
                         self.add_element_to_validation_tree(parsedtext)
                     if not parsedtext.is_empty:

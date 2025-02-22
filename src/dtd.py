@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from buffer_controller import Token
-    from xmlvalidator import ErrorCollector
+    from errorcollector import ErrorCollector
     from xmlvalidator import ValidatorAttribute
     from xmlvalidator import ValidatorCData
     from xmlvalidator import ValidatorParsedText
@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 from enum import Enum
 from enum import auto
 from enum import unique
+
+from errorcollector import ValidErr
+from errorcollector import CritErr
 
 
 @unique
@@ -53,16 +56,22 @@ class AttributeDefinitionsType(Enum):
     NOTATION = auto()
 
 
-class CdataElement:
+class PCDATAElement:
     def __init__(self, content: Token) -> None:
         self.content = content
+
+    def get_token(self) -> Token:
+        return self.content
 
 
 class TagElement:
     def __init__(self, name: Token) -> None:
         self.name: Token = name
-        self.child_elements: list[TagElement | CdataElement] = []
+        self.child_elements: list[TagElement | PCDATAElement] = []
         self.attrs: list[AttrElement] = []
+
+    def get_token(self) -> Token:
+        return self.name
 
 
 class AttrElement:
@@ -184,6 +193,103 @@ class ElementDefinitionsDefined:
         if len(accumulator) > 0:
             child_definition = ElementDefinitionsDefined(accumulator, self)
             self.child_definitions.append(child_definition)
+
+
+class ElementDefinitionsMixed:
+    def __init__(self, tokens: list[Token], error_collector: ErrorCollector) -> None:
+        self.__representation = self.get_representation(tokens)
+        self.err = error_collector
+        self.tokens = tokens
+        self.is_definition_valid: bool = True
+        self.modifier: ElementDefinitionsModifier = self.get_modifier()
+        self.strip_paranthesis()
+        if not self.is_definition_valid:
+            return
+        self.valid_tags: set[Token] = set()
+        self.parse_elements()
+
+    def __repr__(self) -> str:
+        return self.__representation
+
+    def get_modifier(self) -> ElementDefinitionsModifier:
+        if self.tokens[-1] == ("*"):
+            self.tokens.pop(-1)
+            return ElementDefinitionsModifier.ZERO_OR_MORE
+        # check for other not valid tokens at the end of the sequence
+        return ElementDefinitionsModifier.ONLY_ONE
+
+    def strip_paranthesis(self) -> None:
+        if self.tokens[0] != ("(") or self.tokens[-1] != (")"):
+            self.is_definition_valid = False
+            self.err.add(self.tokens[0], CritErr.MIXED_PARENTHESIS)
+            return
+        else:
+            self.tokens.pop(0)
+            self.tokens.pop(-1)
+
+    def get_representation(self, tokens: list[Token]) -> str:
+        text = ""
+        for index, token in enumerate(tokens):
+            if index == len(tokens) - 1:
+                text += token.chars
+            else:
+                text += token.chars + " "
+        return text
+
+    def parse_elements(self) -> None:
+        if self.tokens[0].chars != "#PCDATA":
+            self.err.add(self.tokens[0], CritErr.MIXED_PCDATA)
+            self.is_definition_valid = False
+            return
+        ##########################################################
+        # check if a tagname is a valid name to see if it needs to be deactivated
+        ##########################################################
+        if (
+            self.tokens[0] == "#PCDATA"
+            and len(self.tokens) > 1
+            and self.modifier != ElementDefinitionsModifier.ZERO_OR_MORE
+        ):
+            self.err.add(self.tokens[0], CritErr.MIXED_PCDATA_END_STAR)
+            self.is_definition_valid = False
+            return
+
+        i = 1
+        last_token_is_element = True
+        while i < len(self.tokens):
+            element = self.tokens[i]
+            if element == "|" and last_token_is_element:
+                i += 1
+                last_token_is_element = False
+                continue
+            if element == "|" and not last_token_is_element:
+                self.err.add(element, CritErr.MIXED_SEQ_PIPE)
+                self.is_definition_valid = False
+                return
+            if element != "|" and last_token_is_element:
+                self.err.add(element, CritErr.MIXED_PIPE_SEPARATION)
+                self.is_definition_valid = False
+                return
+            if element != "|" and not last_token_is_element:
+                if element.chars == "#PCDATA":
+                    self.err.add(element, CritErr.MIXED_SINGLE_PCDATA_TAG)
+                    self.is_definition_valid = False
+                    return
+                if element in self.valid_tags:
+                    self.err.add(element, CritErr.MIXED_DUPLICATE_TAGS)
+                    self.is_definition_valid = False
+                    return
+                self.valid_tags.add(element)
+                last_token_is_element = True
+                i += 1
+
+    def validate_elements(self, elements: list[TagElement | PCDATAElement]) -> None:
+        for element in elements:
+            if isinstance(element, PCDATAElement):
+                continue
+            if element.name in self.valid_tags:
+                continue
+            self.err.add(element.name, ValidErr.MIXED_UNDEFINED_TAG)
+        return
 
 
 class ModifierDefinition:
@@ -479,8 +585,10 @@ class TargetDefinition:
 
 
 class DefinitionTreeValidator:
-    def __init__(self, edd: ElementDefinitionsDefined) -> None:
+    def __init__(self, edd: ElementDefinitionsDefined, error_collector: ErrorCollector) -> None:
+        self.__edd = edd
         self.__representation = str(f"{edd!r}")
+        self.err = error_collector
         self.root: None | ChoiceDefinition | SequenceDefinition | TargetDefinition = None
         self.build_definition_tree(edd)
 
@@ -570,17 +678,49 @@ class DefinitionTreeValidator:
         target.register_match()
         return True
 
+    def is_non_deterministic_content_model(self, targets: list[TargetDefinition]) -> bool:
+        # Duplicate targets are not allowed
+        return len(targets) != len(set(targets))
+
+    def is_requirements_met(self) -> bool:
+        available_targets = self.get_available_targets()
+
+        for target in available_targets:
+            if not target.is_optional():
+                return False
+
+        for target in available_targets:
+            target.resolve_optional_target()
+
+        if self.root is not None and self.root.is_count_met():
+            return True
+        return False
+
+    def validate_elements(self, elements: list[Token]) -> None:
+        for element in elements:
+            available_targets = self.get_available_targets()
+            if self.is_non_deterministic_content_model(available_targets):
+                self.err.add(self.__edd.tokens[0], ValidErr.NON_DETERMINISTIC_DUPLICATES)
+                return
+
+            if not self.match(element, available_targets):
+                self.err.add(element, ValidErr.UNDEFINED_ELEMENT)
+                return
+
+        if not self.is_requirements_met():
+            self.err.add(self.__edd.tokens[0], ValidErr.INCOMPLETE_DEFINITION)
+
 
 class Dtd:
     def __init__(
         self,
+        error_collector: ErrorCollector,
         root: Token | None = None,
-        error_collector: None | ErrorCollector = None,
     ) -> None:
-        self.error_collector = error_collector
+        self.err = error_collector
         self.root = root
         self.element_definitions: dict[
-            Token, ElementDefinitionsDefined | ElementDefinitionsAny | ElementDefinitionsEmpty
+            Token, ElementDefinitionsDefined | ElementDefinitionsMixed | ElementDefinitionsAny | ElementDefinitionsEmpty
         ] = {}
         # ATTRIBUTE
         # self.attribute_ids: set = set()
@@ -592,12 +732,10 @@ class Dtd:
         tokens: list[Token],
     ) -> None:
         if element_name in self.element_definitions:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(element_name, "Element is defined already.")
+            self.err.add(element_name, ValidErr.ELEMENT_ALREADY_DEFINED)
             return
         if len(tokens) == 0:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(element_name, "Element does not have any definitions.")
+            self.err.add(element_name, ValidErr.ELEMENT_NO_DEFINITION)
             return
         if len(tokens) == 1 and tokens[0] == "ANY":
             self.element_definitions[element_name] = ElementDefinitionsAny()
@@ -605,77 +743,51 @@ class Dtd:
         if len(tokens) == 1 and tokens[0] == "EMPTY":
             self.element_definitions[element_name] = ElementDefinitionsEmpty()
             return
+        for token in tokens:
+            if token == "#PCDATA":
+                mixed_content = ElementDefinitionsMixed(tokens, self.err)
+                if mixed_content.is_definition_valid:
+                    self.element_definitions[element_name] = mixed_content
+                return
         self.element_definitions[element_name] = ElementDefinitionsDefined(tokens)
 
-    # def is_validation_complete(self, eddvalidator: ElementDefinitionsDefinedValidator) -> bool:
-    #     if eddvalidator.is_target():
-    #         match eddvalidator.modifier:
-    #             case ElementDefinitionsModifier.ONLY_ONE_TIME:
-    #                 if eddvalidator.match_count == 1:
-    #                     return True
-    #                 return False
-    #             case ElementDefinitionsModifier.ONE_OR_MORE_TIMES:
-    #                 if eddvalidator.match_count >= 1:
-    #                     return True
-    #                 return False
-    #             case ElementDefinitionsModifier.ZERO_OR_MORE_TIMES:
-    #                 return True
-    #             case ElementDefinitionsModifier.ZERO_OR_ONE_TIMES:
-    #                 if eddvalidator.match_count == 0 or eddvalidator.match_count == 1:
-    #                     return True
-    #                 return False
-    #     # SEQUENCE OR CHOICE
-    #     i = 0
-    #     result = False
-    #     for transit_definition in eddvalidator.branches:
-    #         if transit_definition.order == ElementDefinitionsOrder.SINGLE_ELEMENT:
-    #             pass
-    #             continue
-    #         if transit_definition.order == ElementDefinitionsOrder.SEQUENCE:
-    #             if not self.is_validation_complete(transit_definition):
-    #                 result = False
-    #                 break
-    #             result = True
-    #             i += 1
-    #             continue
-    #         if transit_definition.order == ElementDefinitionsOrder.CHOICE:
-    #             if self.is_validation_complete(transit_definition):
-    #                 result = result or True
-    #             else:
-    #                 result = result or False
-    #             i += 1
-    #             continue
-    #     return result
-
-    def is_non_deterministic_content_model(self, targets: list[TargetDefinition]) -> bool:
-        result = set()
-        for target in targets:
-            if target.name in result:
-                return True
-        return False
-
     def validate_parsed_element_with_element_definitions(
-        self, parsed_element: Token, parsed_child_elements: list[Token]
-    ) -> bool:
+        self, parsed_element: Token, parsed_child_elements: list[ValidatorTag | ValidatorCData | ValidatorParsedText]
+    ) -> None:
         if parsed_element not in self.element_definitions:
-            if self.error_collector is not None:
-                self.error_collector.add_token_start(parsed_element, "Element is not defined.")
-            return False
+            self.err.add(parsed_element, ValidErr.UNDEFINED_ELEMENT)
+            return
         element_definition = self.element_definitions[parsed_element]
+        #######################################################
+        # convert child elements in mixed content elements
+        mixed_content_elements: list[TagElement | PCDATAElement] = []
+        for child_element in parsed_child_elements:
+            if isinstance(child_element, ValidatorTag) and child_element.name is not None:
+                mixed_content_elements.append(TagElement(child_element.name))
+            if isinstance(child_element, ValidatorCData | ValidatorParsedText) and child_element.content is not None:
+                if len(mixed_content_elements) > 0 and isinstance(mixed_content_elements[-1], PCDATAElement):
+                    mixed_content_elements[-1].content.add_token(child_element.content)
+                else:
+                    mixed_content_elements.append(PCDATAElement(child_element.content))
+        #######################################################
         if isinstance(element_definition, ElementDefinitionsAny):
-            return False
+            return
         if isinstance(element_definition, ElementDefinitionsEmpty):
-            return False
+            return
+        if isinstance(element_definition, ElementDefinitionsMixed):
+            element_definition.validate_elements(mixed_content_elements)
+            return
         if isinstance(element_definition, ElementDefinitionsDefined):
-            # tree = TreeDefinitionValidator(element_definition)
-            # available_targets = edd_tree.get_available_targets()
-            # if self.is_non_deterministic_content_model(available_targets):
-            #     # generate error
-            #     pass
-            return False
-        if self.error_collector is not None:
-            self.error_collector.add_token_start(parsed_element, "Element is registered with invalid defintion.")
-        return False
+            tree = DefinitionTreeValidator(element_definition, self.err)
+            non_mixed_child_elements: list[Token] = []
+            for child_element in mixed_content_elements:
+                if isinstance(child_element, PCDATAElement):
+                    self.err.add(child_element.content, ValidErr.NO_PARSED_TEXT_IN_CONTENT)
+                    continue
+                non_mixed_child_elements.append(child_element.name)
+            tree.validate_elements(non_mixed_child_elements)
+            return
+        return
 
     ######################################
     # def define_attribute(self, element_name: str, tokens: list[str]) -> None:
