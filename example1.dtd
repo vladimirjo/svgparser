@@ -1,7 +1,0 @@
-<![ %case1; [
-    <!ELEMENT example (title, content)>
-    <!ELEMENT title (#PCDATA)>
-    <![ %case2; [
-        <!ELEMENT content (#PCDATA)>
-    ]]>
-]]>

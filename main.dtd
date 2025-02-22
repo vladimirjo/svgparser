@@ -1,2 +1,0 @@
-<!ENTITY % module1 SYSTEM "module1.dtd">
-%module1;
