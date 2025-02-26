@@ -1,5 +1,5 @@
-from attlist import ValidatorDtdAttlist
-from buffer_controller import BufferController
+from xmlstruct.attlist import Attlist
+from buffer import BufferController
 from errorcollector import ErrorCollector
 
 def test__attrlist_parse() -> None:
@@ -16,5 +16,5 @@ def test__attrlist_parse() -> None:
     buffer.add_buffer_unit(text, "")
     tokens = buffer.get_buffer_tokens()
     assert tokens is not None
-    attlist = ValidatorDtdAttlist(tokens, ErrorCollector())
+    attlist = Attlist(tokens, ErrorCollector())
     print()

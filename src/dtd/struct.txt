@@ -1,0 +1,22 @@
+dtd
+|- dtdcore.py - DtdCore
+    |- DtdCdata
+    |- DtdTag
+    |- DtdAttr
+|- defelem.py
+    |- DefElemModifierEnum
+    |- DefElemOrderEnum
+    |- DefElemAny
+    |- DefElemEmpty
+    |- DefElemDefined
+    |- DefElemMixed
+|- defattr.py
+    |- DefAttrDefaultsEnum
+    |- DefAttrTypeEnum
+    |- DefAttr
+|- valelem.py
+    |- ValElemModifier
+    |- ValElemChoice
+    |- ValElemSequence
+    |- ValElemTarget
+    |- ValElemTree

@@ -1,12 +1,11 @@
-from dtd import ElementDefinitionsMixed, TagElement, PCDATAElement
+from dtd.defelem import DefElemMixed
 from tests.conftest import MixedContentTest,tokenize_definition
-from buffer_controller import Fragment, Token
 from errorcollector import ErrorCollector
 
 
 def test__mixed_content_only_pcdata() -> None:
     definition = tokenize_definition("(#PCDATA)")
-    mixed_definition = ElementDefinitionsMixed(definition, ErrorCollector())
+    mixed_definition = DefElemMixed(definition, ErrorCollector())
     elements = MixedContentTest()
     elements.add_pcdata("test")
     mixed_definition.validate_elements(elements.mixed_contents)
@@ -16,7 +15,7 @@ def test__mixed_content_only_pcdata() -> None:
 
 def test__mixed_content_with_valid_elements() -> None:
     definitions = tokenize_definition("(#PCDATA | a)*")
-    mixed_definition = ElementDefinitionsMixed(definitions, ErrorCollector())
+    mixed_definition = DefElemMixed(definitions, ErrorCollector())
     elements = MixedContentTest()
     elements.add_pcdata("test")
     elements.add_element("a")
@@ -25,7 +24,7 @@ def test__mixed_content_with_valid_elements() -> None:
 
 def test__mixed_content_with_invalid_elements() -> None:
     definitions = tokenize_definition("(#PCDATA | a)*")
-    mixed_definition = ElementDefinitionsMixed(definitions, ErrorCollector())
+    mixed_definition = DefElemMixed(definitions, ErrorCollector())
     elements = MixedContentTest()
     elements.add_pcdata("test")
     elements.add_element("b")

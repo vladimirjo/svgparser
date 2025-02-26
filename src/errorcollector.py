@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from buffer_controller import Token
+    from buffer import Token
 
 
 class CritErr(Enum):
@@ -102,9 +102,8 @@ class CritErr(Enum):
     DOCTYPE_LOCATION = "Doctype must come after either xml declaration,comments or instructions."
     DTD_ELEMENTS_LOCATION = "Dtd elements must be inside Doctype section."
     DTD_ALREADY_DEFINED = "Dtd is already defined."
-    XMLNAME_FIRST_CHAR_ERROR = "XML Name value must begin with a letter or an underscore(_)."
-    XMLNAME_OTHER_CHARS_ERROR = (
-        "The initial character of the name of an element can be followed by any number of letters, "
+    XMLNAME_ERROR = (
+        "XML Name value must begin with a letter or an underscore(_) followed by any number of letters, "
         "digits, periods(.), hyphens(-), underscores or colons (:)."
     )
     NMTOKEN_ERROR = (
