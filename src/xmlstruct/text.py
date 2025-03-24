@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+from xmltokens import XmlChars
 
-from xmltokens.xmlchars import XmlChars
 
-
-class Tag:
+class Text:
     def __init__(self) -> None:
         self.contents: XmlChars | None = None
 
-    def can_add_xmltoken(self, xmlchars: XmlChars) -> bool:
-        if xmlchars == "<":
+    def can_add_xmltoken(self, xmltoken: XmlChars) -> bool:
+        if xmltoken == "<":
             return False
         if self.contents is None:
             self.contents = XmlChars()
-        self.contents.append(xmlchars)
+        self.contents.append(xmltoken)
         return True

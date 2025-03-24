@@ -4,14 +4,12 @@ def test():
     # Define the XML string
     xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE example [
-  <!ENTITY nestedample "&#x26;amp;">
-  <!ENTITY ample "&nestedample;">
-  <!ENTITY light "&lt;">
-  <!ENTITY gt "&gt;">
+  <!ENTITY   % pub    "Editions Gallimard" >
+  <!ENTITY   rights "%pub;All rights reserved" >
+  <!ENTITY   book   "La Peste: Albert Camus, &#xA9; 1947 . &rights;" >
 ]>
 <example>
-    <text attr="This is an example of &ample; &light; and &gt; inside an attribute"/>
-    <description attr="The character reference &ample; represents an ampersand"/>
+    <text attr="This is an example of &book; inside an attribute"/>
 </example>'''
 
     # Parse the XML data

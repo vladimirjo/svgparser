@@ -1,116 +1,104 @@
 from __future__ import annotations
 
+from enum import Enum
+from enum import auto
 from typing import TYPE_CHECKING
+
+from errcl import CritErr
 
 
 if TYPE_CHECKING:
-    from buffer import Token
-    from errorcollector import ErrorCollector
-    from xmlvalidator import XmlValidator
+    from errcl import ErrorCollector as ErrCl
+    from xmltokens import XmlChars
+    from xmltokens import XmlMarkup
 
-    from .doctype import Doctype
-    from .includeignore import IncludeIgnore
-    from .tag import Tag
 
-from errorcollector import CritErr
+class EntityType(Enum):
+    INTERNAL = auto()
+    EXTERNAL_SYSTEM = auto()
+    EXTERNAL_PUBLIC = auto()
 
 
 class Entity:
-    def __init__(self, element_tokens: list[Token], error_collector: ErrorCollector) -> None:
-        self.tokens = element_tokens
-        self.err = error_collector
-        self.current = 0
-        self.end = len(self.tokens) - 1
-        self.parent: Doctype | IncludeIgnore | XmlValidator | Tag | None = None
-        self.name: Token | None = None
-        self.intern_value: Token | None = None
-        self.extern_system: Token | None = None
-        self.extern_public: Token | None = None
-        self.verify_start()
-        self.verify_end()
-        self.verify_and_get_name()
-        self.verify_and_get_entity_type()
+    def __init__(self, startseq: XmlMarkup, errcl: ErrCl) -> None:
+        self.startseq: XmlMarkup = startseq
+        self.tokens: list[XmlChars] = []
+        self.tokens.append(startseq.xmlchars)
+        self.errcl = errcl
+        self.parent = None
+        self.is_finished = False
+        self.is_pent: bool | None = None
+        self.name: XmlChars | None = None
+        self.is_syslit: bool = False
+        self.entity_type: EntityType | None = None
+        self.internal_value: XmlChars | None = None
+        self.public_value: XmlChars | None = None
+        self.system_value: XmlChars | None = None
+        self.is_ndata: bool = False
+        self.ndata_value: XmlChars | None = None
+        self.undef_trail: list[XmlChars] = []
 
-    def __repr__(self):
+    def check_integrity(self) -> None:
         if self.name is None:
-            return "Entity"
-        return f"Entity: {self.name.chars}"
+            self.errcl.add(self.startseq, CritErr.ELEMENT_INVALID)
+            return
+        if self.entity_type is None:
+            self.errcl.add(self.startseq, CritErr.ELEMENT_INVALID)
+            return
+        if self.endseq is None:
+            self.errcl.add(self.startseq, CritErr.ELEMENT_INVALID)
 
-    def verify_start(self) -> None:
-        if not self.tokens[self.current].match("<!ENTITY"):
-            self.err.add(self.tokens[self.current], CritErr.ELEMENT_MISSING_START_SEQUENCE)
-        else:
-            self.current += 1
+    def add_quotes(self, quotes: XmlMarkup) -> None:
 
-    def verify_end(self) -> None:
-        if not self.tokens[self.end].match(">"):
-            self.err.add(self.tokens[self.end], CritErr.ELEMENT_MISSING_END_SEQUENCE, -1)
-        else:
-            self.end -= 1
 
-    def verify_and_get_name(self) -> None:
-        if self.current > self.end:
-            self.err.add(self.tokens[self.current], CritErr.ELEMENT_NAME_MISSING, -1)
-        else:
-            self.name = self.tokens[self.current]
+    def can_xmlchars_be_added(self, xmlchars: XmlChars) -> bool:
+        if self.is_finished:
+            return False
+        if xmlchars == "<":
+            self.is_finished = True
+            return False
+        if xmlchars == ">":
+            self.is_finished = True
+            return True
+        if self.is_pent is None:
+            if xmlchars == "%":
+                self.is_pent = True
+                return True
+            self.is_pent = False
+        if self.name is None:
+            self.name = xmlchars
             if not self.name.is_xmlname():
-                self.err.add(self.name, CritErr.XMLNAME_ERROR)
-            self.current += 1
-
-    def verify_and_get_entity_type(self) -> None:
-        if self.current > self.end:
-            self.intern_value = self.verify_and_get_quotes_value("Entity substition")
-            return
-        if self.tokens[self.current].match("SYSTEM"):
-            self.current += 1
-            self.extern_system = self.verify_and_get_quotes_value("System identifier")
-        elif self.tokens[self.current].match("PUBLIC"):
-            self.current += 1
-            self.extern_public = self.verify_and_get_quotes_value("Public identifier")
-            self.extern_system = self.verify_and_get_quotes_value("System identifier")
-        else:
-            self.intern_value = self.verify_and_get_quotes_value("Entity substition")
-
-    def verify_and_get_quotes_value(self, identifier: str) -> None | Token:
-        quotes_value: None | Token = None
-        if self.current > self.end:
-            self.err.add(
-                self.tokens[self.current],
-                CritErr.DOCTYPE_IDENTIFIER_MISSING_VALUE,
-                -1,
-                {identifier: identifier},
-            )
-            return
-        # The left quote
-        if self.tokens[self.current].is_quotes():
-            self.current += 1
-        else:
-            self.err.add(
-                self.tokens[self.current],
-                CritErr.DOCTYPE_IDENTIFIER_MISSING_LEFT_QUOTE,
-                0,
-                {identifier: identifier},
-            )
-        # The quotes value
-        if self.current > self.end and not self.tokens[self.current].is_quotes():
-            self.err.add(
-                self.tokens[self.current],
-                CritErr.DOCTYPE_IDENTIFIER_MISSING_VALUE,
-                0,
-                {identifier: identifier},
-            )
-            return
-        else:
-            quotes_value = self.tokens[self.current]
-            self.current += 1
-        # The right quote
-        if self.tokens[self.current].is_quotes():
-            self.current += 1
-        else:
-            self.err.add(
-                self.tokens[self.current],
-                CritErr.DOCTYPE_IDENTIFIER_MISSING_RIGHT_QUOTE,
-                0,
-                {identifier: identifier},
-            )
-        return quotes_value
+                self.errcl.add(self.name, CritErr.XMLNAME_ERROR)
+            return True
+        if self.entity_type is None:
+            if xmlchars == "SYSTEM":
+                self.is_syslit = True
+                self.entity_type = EntityType.EXTERNAL_SYSTEM
+                return True
+            if xmlchars == "PUBLIC":
+                self.is_syslit = True
+                self.entity_type = EntityType.EXTERNAL_PUBLIC
+                return True
+            self.entity_type = EntityType.INTERNAL
+        if self.entity_type == EntityType.INTERNAL and self.internal_value is None:
+            self.internal_value = xmlchars.strip_quotes()
+            return True
+        if self.entity_type == EntityType.EXTERNAL_SYSTEM and self.system_value is None:
+            self.is_syslit = False
+            self.system_value = xmlchars.strip_quotes()
+            return True
+        if self.entity_type == EntityType.EXTERNAL_PUBLIC:
+            if self.public_value is None:
+                self.public_value = xmlchars.strip_quotes()
+                return True
+            if self.system_value is None:
+                self.is_syslit = False
+                self.system_value = xmlchars.strip_quotes()
+                return True
+        if not self.is_pent and xmlchars == "NDATA":
+            self.is_ndata = True
+            return True
+        if self.is_ndata and self.ndata_value is None:
+            self.ndata_value = xmlchars
+            return True
+        return False

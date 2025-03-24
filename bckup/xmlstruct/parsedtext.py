@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from buffer import Token
     from errorcollector import ErrorCollector
-    from xmlvalidator import XmlValidator
+    from bckup.xmlvalidator import XmlValidator
 
     from .tag import Tag
 
