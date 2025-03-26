@@ -1,0 +1,14 @@
+<!ENTITY % test5 'test1 "e4,e5*'>
+<!ENTITY % %test5;">
+<!ENTITY % test2 "e1">
+<!ENTITY % test3 "<!ELEMENT %test2; (#PCDATA)>">
+%test3;
+<!ENTITY % test4 "<!ELEMENT e2 (#PCDATA)">
+<!ENTITY % test5 "%test4;>">
+%test5;
+
+<!ELEMENT e3 (#PCDATA)>
+<!ELEMENT e4 (#PCDATA)>
+<!ELEMENT e5 (#PCDATA)>
+<!ELEMENT e6 (#PCDATA)>
+<!ELEMENT book ((e1 | (e2 , (e3 | (%test1;)))), e6)>

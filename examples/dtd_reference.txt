@@ -1,0 +1,95 @@
+!DOCTYPE
+    tokens: [] quotes
+    break:
+        [
+        >
+        <
+    <!DOCTYPE person SYSTEM "http://www.cafeconleche.org/dtds/person.dtd">
+    <!DOCTYPE rss PUBLIC "-//Netscape Communications//DTD RSS 0.91//EN"
+        "http://my.netscape.com/publish/formats/rss-0.91.dtd">
+    <!DOCTYPE person [
+        <!ELEMENT first_name (#PCDATA)>
+        <!ELEMENT last_name (#PCDATA)>
+        <!ELEMENT profession (#PCDATA)>
+        <!ELEMENT name (first_name, last_name)>
+        <!ELEMENT person (name, profession*)>
+    ]>
+    <!DOCTYPE person SYSTEM "name.dtd" [
+        <!ELEMENT profession (#PCDATA)>
+        <!ELEMENT person (name, profession*)>
+    ]>
+
+!ELEMENT
+    tokens: (),+?*|
+    <!ELEMENT name (last_name
+        | (first_name, ( (middle_name+, last_name) | (last_name?) ))
+    ) >
+    <!ELEMENT paragraph
+        (#PCDATA | name | profession | footnote | emphasize | date )*
+    >
+!ATTLIST
+    <!ATTLIST date month (January | February | March | April | May | June
+        | July | August | September | October | November | December) #REQUIRED
+    >
+!NOTATION
+    tokens: quotes
+    <!NOTATION gif SYSTEM "image/gif">
+    <!NOTATION tiff SYSTEM "image/tiff">
+    <!NOTATION jpeg SYSTEM "image/jpeg">
+    <!NOTATION png SYSTEM "image/png">
+    <!ATTLIST image type NOTATION (gif | tiff | jpeg | png) #REQUIRED>
+
+!ENTITY
+    tokens: quotes
+    <!ENTITY footer
+        '<hr size="1" noshade="true"/>
+        <font CLASS="footer">
+        50
+        |
+        Chapter 3: Document Type Definitions (DTDs)
+        This is the Title of the Book, eMatter Edition
+        Copyright © 2007 O’Reilly & Associates, Inc. All rights reserved.
+        <a href="index.html">O&apos;Reilly Home</a> |
+        <a href="sales/bookstores/">O&apos;Reilly Bookstores</a> |
+        <a href="order_new/">How to Order</a> |
+        <a href="oreilly/contact.html">O&apos;Reilly Contacts</a><br>
+        <a href="http://international.oreilly.com/">International</a> |
+        <a href="oreilly/about.html">About O&apos;Reilly</a> |
+        <a href="affiliates.html">Affiliated Companies</a>
+        </font>
+        <p>
+        <font CLASS="copy">
+        Copyright 2004, O&apos;Reilly Media, Inc.<br/>
+        <a href="mailto:webmaster@oreilly.com">webmaster@oreilly.com</a>
+        </font>
+        </p>'
+    >
+
+    <!ENTITY coordinate "((x, y) | (y, x) | (θ, r) | (r, θ))" >
+
+    <!ENTITY footer SYSTEM "http://www.oreilly.com/boilerplate/footer.xml">
+
+CDATA
+moze tekst da se ubaci izmedju kao npr:
+%names;
+
+tokens: [ ]]>
+break:
+ [
+ >
+ <
+<![IGNORE[
+	...
+	!ELEMENT
+	!ATTLIST
+	!NOTATION
+	!ENTITY
+]]>
+
+<![ INCLUDE [
+	...
+	!ELEMENT
+	!ATTLIST
+	!NOTATION
+	!ENTITY
+]]>

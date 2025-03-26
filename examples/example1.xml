@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE example [
+  <!ENTITY   % pubexp SYSTEM "exp1.dtd"  "Editions Gallimard">
+  <!ENTITY   rights "%pub;All rights reserved" >
+  <!ENTITY   book   "La Peste: Albert Camus, &#xA9; 1947 %pub;. &rights;" >
+]>
+<example>
+    <text attr="This is an example of &book; inside an attribute"/>
+</example>

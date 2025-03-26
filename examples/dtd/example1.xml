@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!DOCTYPE book [
+    <!-- Internal Subset -->
+    <!ENTITY % black SYSTEM "ent2.dtd">
+    %black;
+]>
+<book>
+    <e2></e2>
+    <e4></e4>
+    <e5></e5>
+    <e5></e5>
+    <e6></e6>
+</book>
