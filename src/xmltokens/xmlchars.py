@@ -44,6 +44,24 @@ class XmlChars:
     def __len__(self) -> int:
         return len(self.xmlchars)
 
+    def get_entity_id(self) -> int:
+        if len(self.xmlchars) == 0:
+            return -1
+        first = self.xmlchars[0].entity_id
+        i = 0
+        while i < len(self.xmlchars):
+            if first != self.xmlchars[i].entity_id:
+                raise ValueError("Internal xmlvalidator library error, please report immediately.")
+            i += 1
+        return first
+
+    def is_quote(self) -> bool:
+        if len(self.xmlchars) != 1:
+            return False
+        if self.xmlchars[0] == "'" or self.xmlchars[0] == '"':
+            return True
+        return False
+
     def add_entity_id(self, entity_id: int) -> None:
         for xmlchar in self.xmlchars:
             xmlchar.add_entity_id(entity_id)
@@ -88,7 +106,9 @@ class XmlChars:
         return self.strchars[offset : offset + len(text)] == text
 
     def is_space(self, offset: int = 0) -> bool:
-        return self.strchars[offset].isspace()
+        if self.strchars[offset] in {" ", "\n", "\t", "\r"}:
+            return True
+        return False
 
     def is_namestartchar(self, char: str) -> bool:
         if len(char) != 1:

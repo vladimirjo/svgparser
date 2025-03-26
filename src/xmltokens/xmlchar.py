@@ -15,6 +15,12 @@ class XmlChar:
         self.buffer_pos = buffer_pos
         self.entity_id: int = entity_id
 
+    def get_buffer_slot(self) -> int:
+        return self.buffer_slot
+
+    def get_buffer_pos(self) -> int:
+        return self.buffer_pos
+
     def add_entity_id(self, entity_id: int) -> None:
         self.entity_id = entity_id
 

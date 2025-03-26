@@ -35,7 +35,7 @@ from xmlvalidator import TextBuffer
     ],
 )
 def test_buffer(input_str, expected_valid, expected_invalid, expected_discouraged):
-    buffer = TextBuffer(input_str)
+    buffer = TextBuffer(input_str,0)
     assert buffer.valid_chars == expected_valid
     assert buffer.invalid_and_skipped_chars == expected_invalid
     assert buffer.valid_but_discouraged_chars == expected_discouraged

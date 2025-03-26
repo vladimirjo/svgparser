@@ -19,6 +19,16 @@ class XmlCharRef:
             self.xmlchars.append(xmlchar)
         self.entity_id: int = entity_id
 
+    def get_buffer_slot(self) -> int:
+        if len(self.xmlchars) == 0:
+            return -1
+        return self.xmlchars[0].get_buffer_slot()
+
+    def get_buffer_pos(self) -> int:
+        if len(self.xmlchars) == 0:
+            return -1
+        return self.xmlchars[0].get_buffer_pos()
+
     def add_entity_id(self, entity_id: int) -> None:
         self.entity_id = entity_id
 

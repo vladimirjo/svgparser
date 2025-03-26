@@ -30,11 +30,12 @@ class XmlProcessor:
             return False
         return self.xmlchars.is_space(self.pointer + offset + len(text))
 
-    def skip_spaces(self) -> None:
-        xmlchars = self.read()
-        while xmlchars.strchars.isspace():
+    def get_spaces(self) -> XmlChars:
+        spaces = XmlChars()
+        while self.read().is_space():
+            spaces.append(self.read())
             self.move()
-            xmlchars = self.read()
+        return spaces
 
     def get_pent_ref(self) -> XmlChars | None:
         if self.read() != "%":
