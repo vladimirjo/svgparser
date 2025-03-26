@@ -1,0 +1,15 @@
+<!ENTITY % test "&#34;year&#34;">
+<!ENTITY % entt "&#34;year">
+<!ENTITY % enttr '%entt;"'>
+<!ENTITY % temp "temp">
+<!ENTITY%temp;%test;>
+<!ENTITY % ent "&#60;!ENTITY %temp; %test;>">
+%ent;
+<!ENTITY published "<author tree='year'>%enttr;</author>">
+<!ENTITY % bookInfo "<!ELEMENT book (#PCDATA | title | author | PublisherInfo)*>">
+
+%bookInfo;
+<!ELEMENT title (#PCDATA)>
+<!ELEMENT author (#PCDATA)>
+<!ELEMENT PublisherInfo (#PCDATA)>
+<!ATTLIST author tree CDATA #REQUIRED>

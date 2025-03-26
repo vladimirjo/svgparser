@@ -1,0 +1,11 @@
+<!ENTITY % year " &#34;2025&#34;">
+<!ENTITY % artistinfo "%year;">
+<!ENTITY % artistdesc "%year;">
+<!ENTITY % bookInfo "<!ELEMENT book (#PCDATA | title | author | PublisherInfo)*>">
+<!ENTITY published "<author tree='year'>%artistinfo;</author>">
+
+%bookInfo;
+<!ELEMENT title (#PCDATA)>
+<!ELEMENT author (#PCDATA)>
+<!ELEMENT PublisherInfo (#PCDATA)>
+<!ATTLIST author tree CDATA #REQUIRED>
