@@ -110,25 +110,5 @@
     "ruff.importStrategy": "fromEnvironment",
     "autoDocstring.generateDocstringOnEnter": true,
     "autoDocstring.quoteStyle": "'''",
-    "autoDocstring.docstringFormat": "google",
-    "workbench.colorCustomizations": {
-        "activityBar.activeBackground": "#e54275",
-        "activityBar.background": "#e54275",
-        "activityBar.foreground": "#e7e7e7",
-        "activityBar.inactiveForeground": "#e7e7e799",
-        "activityBarBadge.background": "#5be01f",
-        "activityBarBadge.foreground": "#15202b",
-        "commandCenter.border": "#e7e7e799",
-        "sash.hoverBorder": "#e54275",
-        "statusBar.background": "#d61e57",
-        "statusBar.foreground": "#e7e7e7",
-        "statusBarItem.hoverBackground": "#e54275",
-        "statusBarItem.remoteBackground": "#d61e57",
-        "statusBarItem.remoteForeground": "#e7e7e7",
-        "titleBar.activeBackground": "#d61e57",
-        "titleBar.activeForeground": "#e7e7e7",
-        "titleBar.inactiveBackground": "#d61e5799",
-        "titleBar.inactiveForeground": "#e7e7e799"
-    },
-    "peacock.remoteColor": "#d61e57"
+    "autoDocstring.docstringFormat": "google"
 }
