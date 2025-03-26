@@ -46,7 +46,7 @@
         "*.md": "vscode.markdown.preview.editor",
         "*.svg": "svgPreviewer.customEditor"
     },
-    "workbench.colorTheme": "GitHub Dark",
+    "workbench.colorTheme": "Ayu Mirage Bordered",
     "git.enableSmartCommit": true,
     "git.autofetch": true,
     "git.confirmSync": false,
